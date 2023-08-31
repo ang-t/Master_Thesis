@@ -1,3 +1,0 @@
-Sample	MmES_RVChIP_062_pv6_Ascl1_DBD_pool	MmES_bioGFP_r1
-MmES_RVChIP_062_pv6_Ascl1_DBD_pool	1.497139	
-MmES_bioGFP_r1		1.005363

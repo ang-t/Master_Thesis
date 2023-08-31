@@ -1,3 +1,0 @@
-Sample	8	12	22	27	32	37	41	14	15	16	27	28	30	31	32	33	34	35	36	37	38	39	40
-MmES_RVChIP_062_pv6_Ascl1_DBD_pool																							
-MmES_bioGFP_r1																							

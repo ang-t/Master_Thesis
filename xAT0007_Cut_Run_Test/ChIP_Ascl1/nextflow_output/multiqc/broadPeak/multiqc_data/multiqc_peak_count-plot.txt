@@ -1,2 +1,0 @@
-Sample	MmES_RVChIP_062_pv6_Ascl1_DBD_pool
-MmES_RVChIP_062_pv6_Ascl1_DBD_pool	55197.0

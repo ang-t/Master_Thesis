@@ -1,3 +1,0 @@
-Sample	Aligned Reads
-MmES_RVChIP_062_pv6_Ascl1_DBD_pool	12362600.0
-MmES_bioGFP_r1	43897345.0
