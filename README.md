@@ -1,5 +1,5 @@
 # Master_Thesis
-Final repository with all scripts and plots
+Final repository with all scripts and datasets
 
 
 The project was about designing a synthetic transcription factor system to
