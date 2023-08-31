@@ -1,0 +1,838 @@
+---
+title: "xAT0007_compare_Cutnrun_ChIP"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Runing the ChIP and also rerun the cutnrun with CPM
+
+```{bash}
+nextflow run nf-core/chipseq -r 2.0.0 -profile docker --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Ch
+IP_Ascl1/sample_file_DBD_chipseq.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/ --genome mm10 --read_length 50 -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config  --max_cpus 14 --max_memory 60.GB -resume
+
+
+
+nextflow run nf-core/cutandrun -r 3.0 -profile docker -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/ --max_cpus 14 --max_memory 60.GB --genome mm10 --blacklist /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed --normalisation_mode CPM
+```
+# get profile 
+
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TES_mm10_VM23.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ChIP_CutnRun.gz -p 12 --missingDataAsZero
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ChIP_CutnRun.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_ChIP_cutnrun.png --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "ChIP vs. CutnRun (CPM normalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "png"
+
+
+
+### compare with the CPM
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ChIP_CutnRun.gz -p 12 --missingDataAsZero
+
+
+```
+
+```{r}
+setwd('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/')
+
+#packages
+library("gtools")
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(circlize)
+library(GenomicAlignments)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(ChIPpeakAnno)
+library(ReactomePA)
+library(tibble)
+library(ggpubr)
+library(DiffBind)
+library(org.Mm.eg.db)
+library(diffloop)
+library(ggrepel)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(monaLisa)
+library("SimBu")
+library(reshape2)
+library(DiffBind)
+library(Rsamtools)
+library(valr)
+
+library(ggforce)
+```
+
+
+# load peak file for ChIp take top peaks
+
+```{r}
+
+data_path_ChIP <- "/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/"
+
+
+peak_files_ChIP = list.files(
+    path       = data_path_ChIP, 
+    full.names = TRUE, 
+    pattern    = 'broadPeak$'
+)
+names(peak_files_ChIP) <- c('Ascl1')
+
+peak_Ascl1_ChIP <- readPeakFile(peak_files_ChIP [[1]], as= 'data.frame')
+GR_peak_Ascl1_ChIP <- readPeakFile(peak_files_ChIP [[1]], as= 'GRanges')
+
+peak_Ascl1_sort_ChIP <- arrange(peak_Ascl1_ChIP,desc(V7))
+colnames(peak_Ascl1_ChIP) <- names
+names <- c('seqnames','start','end','name','score','strand','signalValue','pValue','qValue')
+
+
+GR_peak_Ascl1_ChIP<- GRanges(seqnames = as.character(peak_Ascl1_ChIP$seqnames),
+                        ranges = IRanges(start = peak_Ascl1_ChIP$start, end = peak_Ascl1_ChIP$end))
+
+colnames(peak_Ascl1_sort_ChIP)<- names
+peak_Ascl1_sort_ChIP <- as.data.frame(peak_Ascl1_sort_ChIP)
+GR_peak_Ascl1_sort_ChIP <- toGRanges(dplyr::select(peak_Ascl1_sort_ChIP,nam), format='MACS2')
+
+top10pr_GR_peak_Ascl1_sort_ChIP <-  GR_peak_Ascl1_sort_ChIP[1:(as.integer(0.1*length(GR_peak_Ascl1_sort_ChIP)))]
+export(top10pr_GR_peak_Ascl1_sort_ChIP, "data/top10prChIP.ƒbed", "bed")
+
+seqlevels(GR_peak_Ascl1_ChIP) <- seqlevels(txdb)
+seqlengths(GR_peak_Ascl1_ChIP) <- seqlengths(txdb)
+seqinfo(GR_peak_Ascl1_ChIP)
+
+export(GR_peak_Ascl1_ChIP, "data/ChIP_Ascl1.bed", "bed")
+
+## get the genenames
+peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP <- annotatePeak(top10pr_GR_peak_Ascl1_sort_ChIP,tssRegion = c(-2000, 2000), TxDb=txdb)
+
+
+dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP <- as.data.frame(peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP)
+g <- unique(dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP$geneId)
+length(g)
+
+g_entrez <- as.data.frame(AnnotationDbi::mapIds(org.Mm.eg.db, keys =g ,
+       column = "SYMBOL", keytype = "ENTREZID"))
+g_entrez <- g_entrez %>% rownames_to_column()
+
+colnames(g_entrez) <- c('entrez','geneId')
+m <- match(dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP$geneId, g_entrez$entrez)
+
+dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP <- cbind(dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP[,1:14], geneSymbol=g_entrez$geneId[m], dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP[,15:16])
+
+write.csv(dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP, '../ChIP_Ascl1/top10pr_peaks_annotated.csv', row.names = F, col.names= T,quote = F)
+
+
+data_path <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/04_called_peaks/macs2'
+
+
+
+peak_files = list.files(
+    path       = data_path, 
+    full.names = TRUE, 
+    pattern    = 'bed$'
+)
+names <- c()
+
+for (i in seq(1,length(peak_files))){
+  names <- append(names,unlist(strsplit(basename(peak_files[i]),".", fixed = T))[1])
+  
+}
+
+
+
+names(peak_files) <- names
+peak_ASV_Flag_R1 <- readPeakFile(peak_files[[1]], as= 'data.frame')
+peak_ASV_H3K27me3_R1 <- readPeakFile(peak_files[[4]], as= 'data.frame')
+peak_DMSO_Flag_R1 <- readPeakFile(peak_files[[7]], as= 'data.frame')
+
+nrow(peak_ASV_Flag_R1)
+
+
+names <- c('space','start','end','name','score','strand','signalValue','pValue','qValue')
+
+colnames(peak_ASV_Flag_R1)<- names
+GR_peak_ASV_Flag_R1 <- toGRanges(peak_ASV_Flag_R1, format='MACS2')
+
+colnames(peak_ASV_H3K27me3_R1)<- names
+GR_peak_ASV_H3K27me3_R1<- toGRanges(peak_ASV_H3K27me3_R1, format='MACS2')
+
+colnames(peak_DMSO_Flag_R1)<- names
+GR_peak_DMSO_Flag_R1 <- toGRanges(peak_DMSO_Flag_R1, format='MACS2')
+
+
+GR_peak_ASV_Flag_R1 <- renameSeqlevels(GR_peak_ASV_Flag_R1, seqinfo(txdb))
+
+
+seqlevels(GR_peak_ASV_Flag_R1) <- seqlevels(txdb)
+seqlengths(GR_peak_ASV_Flag_R1) <- seqlengths(txdb)
+seqinfo(GR_peak_ASV_Flag_R1)
+
+
+seqlevels(GR_peak_DMSO_Flag_R1) <- seqlevels(txdb)
+seqlengths(GR_peak_DMSO_Flag_R1) <- seqlengths(txdb)
+seqinfo(GR_peak_DMSO_Flag_R1)
+
+seqlevels(top10pr_GR_peak_Ascl1_sort_ChIP) <- seqlevels(txdb)
+seqlengths(top10pr_GR_peak_Ascl1_sort_ChIP) <- seqlengths(txdb)
+seqinfo(top10pr_GR_peak_Ascl1_sort_ChIP)
+## find overlap
+
+peak_ASV_Flag_overlap <- subsetByOverlaps(top10pr_GR_peak_Ascl1_sort_ChIP,GR_peak_ASV_Flag_R1)
+
+peak_DMSO_Flag_overlap <- subsetByOverlaps(top10pr_GR_peak_Ascl1_sort_ChIP,GR_peak_DMSO_Flag_R1)
+
+write.table(peak_DMSO_Flag_overlap, "../peak_DMSO_Flag_overlap.bed", append=TRUE, sep="")
+write.table(peak_ASV_Flag_overlap, "../peak_ASV_Flag_overlap.bed", append=TRUE, sep="")
+
+
+seqinfo(peak_ASV_Flag_overlap)
+
+export(peak_ASV_Flag_overlap, "../ChIP_Ascl1/peak_ASV_Flag_overlap.bigWig", "bigWig",dataFormat = c("auto"), compress = TRUE, fixedSummaries = FALSE)
+
+export(peak_DMSO_Flag_overlap, "../ChIP_Ascl1/peak_DMSO_Flag_overlap.bigWig", "bigWig",dataFormat = c("auto"), compress = TRUE, fixedSummaries = FALSE)
+
+
+
+dd_peakAnnoList_top10pr_GR_peak_Ascl1_sort_ChIP$geneSymbol
+```
+
+
+make metaplots with deeptools
+
+```{bash}
+#over. Chip
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/ChIP_Ascl1.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_ChIP.gz -p 12 --missingDataAsZero --referencePoint center
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_ChIP.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_over_ChIP.svg --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Over ChIP peaks (CPM normalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+
+
+
+
+#overr 10pr od. Chip
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/top10prChIP.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_10pr_ChIP.gz -p 12 --missingDataAsZero --referencePoint center
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_10pr_ChIP.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/over10pr_ChIP.pdf --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Over top 10% of ChIP peaks" --legendLocation upper-left --plotHeight 12 --plotWidth 18 
+
+
+--plotFileFormat "svg"
+```
+
+consensus peaks
+
+
+```{r}
+ASV_Flag.consensus<- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/ASV_Flag.consensus.peaks.awk.bed", header=FALSE)
+
+DMSO_Flag.consensus <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peaks.awk.bed", header=FALSE)
+
+names_bed <- c('space','start','end',"4","5","score","pValue","range","name","count")
+
+colnames(ASV_Flag.consensus) <- names_bed
+
+colnames(DMSO_Flag.consensus) <- names_bed
+
+count <- c(nrow(dplyr::filter(ASV_Flag.consensus, count==1)),
+           nrow(dplyr::filter(ASV_Flag.consensus, count==2)),
+           nrow(dplyr::filter(ASV_Flag.consensus, count==3)),
+           nrow(dplyr::filter(DMSO_Flag.consensus, count==1)),
+           nrow(dplyr::filter(DMSO_Flag.consensus, count==2)),
+           nrow(dplyr::filter(DMSO_Flag.consensus, count==3)))
+
+
+nam <- c('space','start','end',"score","pValue","range","name")
+
+
+           
+rep <- c(1,2,3,1,2,3)
+cond <- c("ASV","ASV","ASV","DMSO","DMSO","DMSO")
+
+df_counts <- data.frame("cond"=cond,
+                        "rep"=rep,
+                        "count"=count)
+df_counts$cond <- as.factor(df_counts$cond)
+
+df_counts$rep <- as.factor(df_counts$rep)
+ggplot(df_counts, aes(x=rep,y=count, fill=cond)) +geom_bar(stat="identity", position=position_dodge())+
+  scale_fill_brewer(palette="Paired")+
+  theme_minimal()+ labs(title="Shared peaks", x="Number of bed replicates", y = "Counts", fill="Treatment")+
+  geom_text(aes(label=count),position=position_dodge(0.9),vjust=-0.2)
+  
+
+png('plots/count_plot.png', width= 700, height= 600)
+
+ggplot(df_counts, aes(x=rep,y=count, fill=cond)) +geom_bar(stat="identity", position=position_dodge())+
+  scale_fill_brewer(palette="Paired")+
+  theme_minimal()+ labs(title="Shared peaks", x="Number of replicates", y = "Counts", fill="Treatment", cex=20,  size=20)+
+  geom_text(aes(label=count),position=position_dodge(0.9),vjust=-0.2,  size=7)+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()  
+
+
+
+ASV_Flag.consensus_1 <- dplyr::filter(ASV_Flag.consensus, count==1)
+ASV_Flag.consensus_2 <- dplyr::filter(ASV_Flag.consensus, count==2)
+
+
+DMSO_Flag.consensus_1 <- dplyr::filter(DMSO_Flag.consensus, count==1)
+DMSO_Flag.consensus_2 <- dplyr::filter(DMSO_Flag.consensus, count==2)
+DMSO_Flag.consensus_3 <- dplyr::filter(DMSO_Flag.consensus, count==3)
+
+
+
+nam <- c('space','start','end')
+GR_ASV_Flag.consensus_1 <- toGRanges(dplyr::select(ASV_Flag.consensus_1,nam), format='MACS2')
+GR_ASV_Flag.consensus_2 <- toGRanges(dplyr::select(ASV_Flag.consensus_2,nam), format='MACS2')
+
+
+GR_DMSO_Flag.consensus_1 <- toGRanges(dplyr::select(DMSO_Flag.consensus_1,nam), format='MACS2')
+GR_DMSO_Flag.consensus_2 <- toGRanges(dplyr::select(DMSO_Flag.consensus_2,nam), format='MACS2')
+GR_DMSO_Flag.consensus_3 <- toGRanges(dplyr::select(DMSO_Flag.consensus_3,nam), format='MACS2')
+
+
+
+seqlevels(GR_DMSO_Flag.consensus_1) <- seqlevels(txdb)
+seqlengths(GR_DMSO_Flag.consensus_1) <- seqlengths(txdb)
+seqinfo(GR_DMSO_Flag.consensus_1)
+
+seqlevels(GR_DMSO_Flag.consensus_2) <- seqlevels(txdb)
+seqlengths(GR_DMSO_Flag.consensus_2) <- seqlengths(txdb)
+seqinfo(GR_DMSO_Flag.consensus_2)
+
+
+seqlevels(GR_DMSO_Flag.consensus_1) <- seqlevels(txdb)
+seqlengths(GR_DMSO_Flag.consensus_1) <- seqlengths(txdb)
+seqinfo(GR_DMSO_Flag.consensus_1)
+
+seqlevels(GR_DMSO_Flag.consensus_2) <- seqlevels(txdb)
+seqlengths(GR_DMSO_Flag.consensus_2) <- seqlengths(txdb)
+seqinfo(GR_DMSO_Flag.consensus_2)
+
+seqlevels(GR_DMSO_Flag.consensus_3) <- seqlevels(txdb)
+seqlengths(GR_DMSO_Flag.consensus_3) <- seqlengths(txdb)
+seqinfo(GR_DMSO_Flag.consensus_3)
+
+export(GR_ASV_Flag.consensus_1, "data/ASV_Flag.consensus_1.bed", "bed")
+export(GR_ASV_Flag.consensus_2, "data/ASV_Flag.consensus_2.bed", "bed")
+
+export(GR_DMSO_Flag.consensus_1, "data/DMSO_Flag.consensus_1.bed", "bed")
+export(GR_DMSO_Flag.consensus_2, "data/DMSO_Flag.consensus_2.bed", "bed")
+export(GR_DMSO_Flag.consensus_3, "data/DMSO_Flag.consensus_3.bed", "bed")
+
+```
+see peaks over consensus peaks
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_2.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons2_DMSO.gz -p 12 --missingDataAsZero --referencePoint center
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons2_DMSO.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_over_cons2_DMSO.svg --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Peaks over consensus peaks in two DMSO replica (CPM normalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+--plotFileFormat "svg"
+--plotFileFormat "png"
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_3.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons3_DMSO.gz -p 12 --missingDataAsZero --referencePoint center
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons3_DMSO.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_over_cons3_DMSO.svg --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Peaks over consensus peaks in three DMSO replica (CPM nomalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+--plotFileFormat "svg"
+
+# over cutnRun data
+
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_1.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons1_DMSO.gz -p 12 --missingDataAsZero --referencePoint center
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons1_DMSO.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_over_cons1_DMSO.png --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Peaks over consensus peaks in CutnRun (CPM nomalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "png"
+
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/ASV_Flag.consensus_1.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons1_ASV.gz -p 12 --missingDataAsZero --referencePoint center  
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_over_cons1_ASV.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_over_cons1_ASV.svg --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "Peaks over consensus peaks in CutnRun (CPM nomalized)" --legendLocation upper-left --plotHeight 18 --plotWidth 22 --plotFileFormat "svg"
+
+--plotFileFormat "svg"
+
+
+
+#ƒor comparing seacer and macs
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_MACS2/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peak_counts.bed /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_MACS2/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peak_counts.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_seacr_Macs2.gz -p 12 --missingDataAsZero --referencePoint center 
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_seacr_Macs2.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_MACS2.svg --samplesLabel ASV DMSO ASV_IgG DMSO_IgG  -T "Peakcalling compared between MACS2 and SEACR" --legendLocation upper-left --plotHeight 12 --plotWidth 18 -z SEACR MACS2 --plotFileFormat "svg"
+
+--plotFileFormat "svg"
+```
+
+### compare with the CPM
+rerun for seacr and macs2
+
+```{bash}
+#for seacr
+nextflow run nf-core/cutandrun -r 3.0 -profile docker -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_seacr/ --max_cpus 14 --max_memory 60.GB --genome mm10 --blacklist /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed --peakcaller SEACR
+
+#for macs2
+
+nextflow run nf-core/cutandrun -r 3.0 -profile docker -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_MACS2/ --max_cpus 14 --max_memory 60.GB --genome mm10 --blacklist /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed --peakcaller MACS2
+```
+
+
+Look at 14 consensus peaks in ASV
+```{r}
+
+# make mean column form pValue and score
+names <- c('space','start','end','score','pValue')
+se_ASV_Flag.consensus_2 <-  dplyr::select(ASV_Flag.consensus_2, names)
+
+se_ASV_Flag.consensus_2$mean_score<-unlist(lapply(se_ASV_Flag.consensus_2$score,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+se_ASV_Flag.consensus_2$mean_pValue<-unlist(lapply(se_ASV_Flag.consensus_2$pValue,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+# rename again to appropriate columnames
+mean_se_ASV_Flag.consensus_2 <-  dplyr::select(se_ASV_Flag.consensus_2, -c("score", "pValue"))
+colnames(mean_se_ASV_Flag.consensus_2) <- names
+
+GR_mean_se_ASV_Flag.consensus_2 <- toGRanges(mean_se_ASV_Flag.consensus_2, format='MACS2')
+
+seqlevels(GR_mean_se_ASV_Flag.consensus_2 ) <- seqlevels(txdb)
+seqlengths(GR_mean_se_ASV_Flag.consensus_2 ) <- seqlengths(txdb)
+seqinfo(GR_mean_se_ASV_Flag.consensus_2) 
+
+
+se_DMSO_Flag.consensus_2 <-  dplyr::select(DMSO_Flag.consensus_2, names)
+se_DMSO_Flag.consensus_2$mean_score<-unlist(lapply(se_DMSO_Flag.consensus_2$score,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+se_DMSO_Flag.consensus_2$mean_pValue<-unlist(lapply(se_DMSO_Flag.consensus_2$pValue,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+# rename again to appropriate columnames
+mean_se_DMSO_Flag.consensus_2 <-  dplyr::select(se_DMSO_Flag.consensus_2, -c("score", "pValue"))
+colnames(mean_se_DMSO_Flag.consensus_2) <- names
+mean_se_DMSO_Flag.consensus_2_sort<- arrange(mean_se_DMSO_Flag.consensus_2, desc(score))
+GR_mean_se_DMSO_Flag.consensus_2_sort <- toGRanges(mean_se_DMSO_Flag.consensus_2_sort, format='MACS2')
+
+seqlevels(GR_mean_se_DMSO_Flag.consensus_2_sort) <- seqlevels(txdb)
+seqlengths(GR_mean_se_DMSO_Flag.consensus_2_sort) <- seqlengths(txdb)
+seqinfo(GR_mean_se_DMSO_Flag.consensus_2_sort) 
+
+
+se_DMSO_Flag.consensus_3 <-  dplyr::select(DMSO_Flag.consensus_3, names)
+se_DMSO_Flag.consensus_3$mean_score<-unlist(lapply(se_DMSO_Flag.consensus_3$score,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+se_DMSO_Flag.consensus_3$mean_pValue<-unlist(lapply(se_DMSO_Flag.consensus_3$pValue,function(x) mean(as.numeric(str_split(x,",")[[1]]))))
+
+# rename again to appropriate columnames
+mean_se_DMSO_Flag.consensus_3 <-  dplyr::select(se_DMSO_Flag.consensus_3, -c("score", "pValue"))
+colnames(mean_se_DMSO_Flag.consensus_3) <- names
+mean_se_DMSO_Flag.consensus_3_sort<- arrange(mean_se_DMSO_Flag.consensus_3, desc(score))
+GR_mean_se_DMSO_Flag.consensus_3_sort <- toGRanges(mean_se_DMSO_Flag.consensus_3_sort, format='MACS2')
+
+seqlevels(GR_mean_se_DMSO_Flag.consensus_3_sort) <- seqlevels(txdb)
+seqlengths(GR_mean_se_DMSO_Flag.consensus_3_sort ) <- seqlengths(txdb)
+seqinfo(GR_mean_se_DMSO_Flag.consensus_3_sort)
+
+
+export(GR_mean_se_DMSO_Flag.consensus_3_sort, "data/DMSO_Flag.consensus_3_sort.bed", "bed")
+export(GR_mean_se_DMSO_Flag.consensus_2_sort, "data/DMSO_Flag.consensus_2_sort.bed", "bed")
+export(GR_mean_se_ASV_Flag.consensus_2_sort, "data/ASV_Flag.consensus_2_sort.bed", "bed")
+
+## get the genenames
+peakAnnoList_GR_mean_se_ASV_Flag.consensus_2 <- annotatePeak(GR_mean_se_ASV_Flag.consensus_2,tssRegion = c(-3000, 3000), TxDb=txdb)
+
+
+dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2 <- as.data.frame(peakAnnoList_GR_mean_se_ASV_Flag.consensus_2)
+g <- unique(dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2$geneId)
+length(g)
+
+g_entrez <- as.data.frame(AnnotationDbi::mapIds(org.Mm.eg.db, keys =g ,
+       column = "SYMBOL", keytype = "ENTREZID"))
+g_entrez <- g_entrez %>% rownames_to_column()
+
+colnames(g_entrez) <- c('entrez','geneId')
+m <- match(dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2$geneId, g_entrez$entrez)
+
+dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2 <- cbind(dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2[,1:14], geneSymbol=g_entrez$geneId[m], dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2[,15:16])
+
+consensus_peaks_twoASV <-dd_peakAnnoList_GR_mean_se_ASV_Flag.consensus_2$geneSymbol
+write.csv(consensus_peaks_twoASV, "data/consensus_peaks_twoASV.csv",row.names = F)
+
+
+
+
+
+
+#how many peaks
+
+
+peaks_Seacr <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peaks.awk.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+peaks_MACS2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_MACS2/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peaks.awk.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+nrow(peaks_MACS2)
+nrow(peaks_Seacr)
+nrow(peaks_MACS2[peaks_MACS2$X10==2,])
+nrow(peaks_Seacr[peaks_Seacr$X10==2,])
+```
+
+```{r}
+peak_Ascl1_ChIP <- as.data.frame(ChIP_peaks)
+peak_Ascl1_ChIP$length <- peak_Ascl1_ChIP$end - peak_Ascl1_ChIP$start
+mean_se_DMSO_Flag.consensus_2$length <- mean_se_DMSO_Flag.consensus_2$end -mean_se_DMSO_Flag.consensus_2$start
+mean_se_DMSO_Flag.consensus_3$length <- mean_se_DMSO_Flag.consensus_3$end - mean_se_DMSO_Flag.consensus_3$start
+
+mean_se_DMSO_Flag.consensus_2$cat <- "CutnRun (2/3)"
+mean_se_DMSO_Flag.consensus_3$cat <- "CutnRun (3/3)"
+peak_Ascl1_ChIP$cat <- "ChIP"
+
+
+
+dummy_DF <- rbind(dplyr::select(mean_se_DMSO_Flag.consensus_2,c("length","cat")),dplyr::select(peak_Ascl1_ChIP,c("length","cat")),dplyr::select(mean_se_DMSO_Flag.consensus_3,c("length","cat")))
+
+
+
+
+ggplot(dummy_DF, aes(x=length, color= cat))+geom_density()+
+  labs(title="Width of peaks",x="Width of peaks", y = "Density", colour="")+
+  theme_minimal()+ scale_color_brewer(palette="Dark2")
+
+
+png("plots/Peak_width.png", width= 900, height= 700)
+ggplot(dummy_DF, aes(x=length, color= cat))+geom_density()+
+  labs(title="Width of peaks",x="Width of peaks", y = "Density", colour="")+
+  theme_minimal()+ scale_color_brewer(palette="Dark2")
+
+dev.off()
+
+
+
+DMSO_Flag_peak_cons2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_2.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+DMSO_Flag_peak_cons2_top1 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus2_top1.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons2_top10 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus2_top10.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+CutnRun_peak_R1_IgG <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/04_called_peaks/seacr/DMSO_Flag_R1.seacr.peaks.stringent.bed')
+
+ChIP_peaks<- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/MmES_RVChIP_062_pv6_Ascl1_DBD_pool_peaks.broadPeak')
+
+CutnRun_peak_R1_pvalue_0.001 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks.stringent.bed')
+
+CutnRun_peak_R1_pvalue_0.01 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.stringent.bed')
+
+CutnRun_peak_R1_pvalue_0.05 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks.stringent.bed')
+
+
+GR_DMSO_Flag_peak_cons3 <- GRanges(seqnames = as.character(DMSO_Flag_peak_cons3$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons3$start, end = DMSO_Flag_peak_cons3$end)) 
+GR_DMSO_Flag_peak_cons2 <- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2$start, end = DMSO_Flag_peak_cons2$end)) 
+
+GR_DMSO_Flag_peak_cons2_top1<- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2_top1$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2_top1$start, end = DMSO_Flag_peak_cons2_top1$end))
+
+GR_DMSO_Flag_peak_cons2_top10<- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2_top10$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2_top10$start, end = DMSO_Flag_peak_cons2_top10$end))
+
+GR_peak_Ascl1_ChIP <- GRanges(seqnames = as.character(peak_Ascl1_ChIP$seqnames),
+                        ranges = IRanges(start = peak_Ascl1_ChIP$start, end = peak_Ascl1_ChIP$end))
+
+peakAnno_DMSO_Flag_peak_cons2 <- annotatePeak(GR_DMSO_Flag_peak_cons2, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+peakAnno_DMSO_Flag_peak_cons3 <- annotatePeak(GR_DMSO_Flag_peak_cons3, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+peakAnno_DMSO_Flag_peaks <- annotatePeak(GR_DMSO_Flag_peaks, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+peakAnno_ASV_Flag_peaks <- annotatePeak(GR_ASV_Flag_peaks, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+peakAnno_Ascl1_ChIP <- annotatePeak(GR_peak_Ascl1_ChIP, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+peakAnno_DMSO_Flag_peak_cons2_top1 <- annotatePeak(GR_DMSO_Flag_peak_cons2_top1, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+peakAnno_DMSO_Flag_peak_cons2_top10 <- annotatePeak(GR_DMSO_Flag_peak_cons2_top10, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+peakAnno_CutnRun_peak_R1_pvalue_0.001 <- annotatePeak(CutnRun_peak_R1_pvalue_0.001, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+peakAnno_CutnRun_peak_R1_pvalue_0.01 <- annotatePeak(CutnRun_peak_R1_pvalue_0.01, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+peakAnno_CutnRun_peak_R1_pvalue_0.05 <- annotatePeak(CutnRun_peak_R1_pvalue_0.05, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+l <- list(peakAnno_Ascl1_ChIP,peakAnno_DMSO_Flag_peak_cons2,peakAnno_DMSO_Flag_peak_cons3,peakAnno_CutnRun_peak_R1_pvalue_0.05,peakAnno_CutnRun_peak_R1_pvalue_0.01)
+names(l) <- c("ChIP","IgG (2/3 cons.)","IgG (3/3cons.)","pvalue 0.05","pvalue 0.01")
+png('plots/Annotation_peaks.png', width= 900, height= 700)
+plotAnnoBar(l, title = "Feature Distriubtion") + theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+plotAnnoBar(peakAnno_DMSO_Flag_peaks)
+plotAnnoBar(peakAnno_ASV_Flag_peaks)
+plotAnnoBar(peakAnno_Ascl1_sort_ChIP)
+
+
+
+```
+```{r}
+p <- promoters(genes(txdb), upstream = 2000, downstream = 200)
+
+d_to_promoter_cons2 <- distanceToNearest(GR_DMSO_Flag_peak_cons2,p)
+d_to_promoter_cons3 <- distanceToNearest(GR_DMSO_Flag_peak_cons3,p)
+d_to_promoter_cons2_top1 <- distanceToNearest(GR_DMSO_Flag_peak_cons2_top1,p)
+d_to_promoter_cons2_top10 <- distanceToNearest(GR_DMSO_Flag_peak_cons2_top10,p)
+d_to_promoter_Ascl1_ChIP <- distanceToNearest(GR_peak_Ascl1_ChIP,p)
+d_to_promoter_0.05 <- distanceToNearest(CutnRun_peak_R1_pvalue_0.05,p)
+d_to_promoter_0.01 <- distanceToNearest(CutnRun_peak_R1_pvalue_0.01,p)
+
+df_d_to_promoter_cons2 <- as.data.frame(mcols(d_to_promoter_cons2))
+
+df_d_to_promoter_cons3 <- as.data.frame(mcols(d_to_promoter_cons3))
+
+df_d_to_promoter_0.05 <-  as.data.frame(d_to_promoter_0.05)
+df_d_to_promoter_0.01 <-  as.data.frame(d_to_promoter_0.01)
+
+ggplot(df_d_to_promoter_cons2,aes(x=distance))+geom_histogram(bins= 50,alpha = 0.4, fill = "blue")+
+  labs(title="Distance to promoter",x="Distance", y = "Count", colour="")+theme_minimal() +xlim(0,10000)
+png('plots/Distance_to_promoter.png',width= 600, height= 400)
+ggplot(as.data.frame(d_to_promoter_Ascl1_ChIP),aes(x=distance))+geom_density(aes(colour="ChIP"), size= 1)+
+  labs(title="Distance to Promoter",x="Distance", y = "Count", colour="", size= 5)+theme_minimal() +xlim(0,10000)+ 
+  geom_density(df_d_to_promoter_cons3,mapping=aes(x=distance, colour="IgG(2/3)"), size= 1)+
+  geom_density(df_d_to_promoter_0.05,mapping=aes(x=distance, colour="pvalue0_05"),size= 1)+
+  geom_density(df_d_to_promoter_0.01,mapping=aes(x=distance, colour="pvalue0_01"), size= 1)+
+  scale_colour_manual(name="",values=c(ChIP="red", pvalue0_01="blue",pvalue0_05="lightblue","IgG(2/3)"="orange"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+median(df_d_to_promoter_cons2$distance)
+median(as.data.frame(d_to_promoter_Ascl1_ChIP)$distance)
+median(df_d_to_promoter_0.01$distance)
+median(df_d_to_promoter_0.05$distance)
+#42459
+#18954
+#15907
+#18631
+c_to_ChIP <- distanceToNearest(GR_peak_Ascl1_ChIP,GR_peak_Ascl1_ChIP)
+d_to_ChIP<- distanceToNearest(GR_DMSO_Flag_peak_cons2,GR_peak_Ascl1_ChIP)
+d_to_ChIP_0.05 <- distanceToNearest(CutnRun_peak_R1_pvalue_0.05,GR_peak_Ascl1_ChIP)
+d_to_ChIP_0.01 <- distanceToNearest(CutnRun_peak_R1_pvalue_0.01,GR_peak_Ascl1_ChIP)
+df_d_to_ChIP_0.05 <-  as.data.frame(d_to_ChIP_0.05)
+df_d_to_ChIP_0.01 <-  as.data.frame(d_to_ChIP_0.01)
+d_to_ChIP<- as.data.frame(mcols(d_to_ChIP))
+df_c_to_ChIP <- as.data.frame(c_to_ChIP)
+png('plots/Distance_to_ChIP_peaks.png', width= 600, height= 400)
+ggplot(d_to_ChIP,aes(x=distance))+geom_density(aes(colour="IgG(2/3)"), size=1)+
+  labs(title="Distance to ChIP Peaks",x="Distance", y = "Count", colour="", size=7)+xlim(0,10000)+
+  geom_density(df_d_to_ChIP_0.05,mapping=aes(x=distance, colour="pvalue0_05"), size=1)+
+  geom_density(df_d_to_ChIP_0.01,mapping=aes(x=distance, colour="pvalue0_01"), size=1)+
+  scale_colour_manual(name="",values=c( pvalue0_01="blue",pvalue0_05="lightblue","IgG(2/3)"="orange"))+theme_minimal() + theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+
+median(d_to_ChIP$distance)
+median(df_d_to_ChIP_0.05$distance)
+median(df_d_to_ChIP_0.01$distance)
+
+```
+
+Bin the genome for fidninf read counts under eeach peak
+```{r}
+
+
+
+GR_DMSO_Flag_peak_cons2_binned <- tile(GR_DMSO_Flag_peak_cons2+100, width = 10)
+median(width(GR_DMSO_Flag_peak_cons2))# mean width 380 # median 326
+
+DMSO_Flag_peak_cons2 <- dplyr::select(DMSO_Flag_peak_cons2, c("chrom", "start", "end"))
+DMSO_Flag_peak_cons2$length <- width(GR_DMSO_Flag_peak_cons2)
+
+DMSO_Flag_peak_cons2$middlepoint <-  abs(DMSO_Flag_peak_cons2$end-(1/2*DMSO_Flag_peak_cons2$length))
+
+DMSO_Flag_peak_cons2$norm_start <- DMSO_Flag_peak_cons2$middlepoint - 190
+
+DMSO_Flag_peak_cons2$norm_end <- DMSO_Flag_peak_cons2$middlepoint + 190
+
+DMSO_Flag_peak_cons2$scalingfactor <- 
+
+
+GR_DMSO_Flag_peak_cons2_norm<- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2$norm_start, end = DMSO_Flag_peak_cons2$norm_end))
+
+export(GR_DMSO_Flag_peak_cons2_norm,'/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.bed',"bed")
+
+```
+
+
+```{bash}
+
+#convert to SAF
+awk 'OFS="\t" {print $1"."$2"."$3, $1, $2, $3, "."}' /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.bed > /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.saf
+
+
+# count reads per feature
+featureCounts -a /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.saf -F SAF Flag_reads.counts /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/02_alignment/bowtie2/target/DMSO_Flag_R1.target.dedup.sorted.bam
+
+#convert to SAF
+awk 'OFS="\t" {print $1"."$2"."$3, $1, $2, $3, "."}' /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.bed > /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.saf
+
+
+# count reads per feature
+featureCounts -a /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/GR_DMSO_Flag_peak_cons2_norm.saf -F SAF Flag_reads.counts /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/02_alignment/bowtie2/target/DMSO_IgG_R1.target.dedup.sorted.bam
+```
+
+```{r}
+IgG_reads <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/IgG_reads.counts", comment.char="#",col.names = c("1","chrom","start","end", "s","length","count"))
+
+Flag_reads <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/Flag_reads.counts", comment.char="#", col.names = c("X1","chrom","start","end", "s","length","count"))
+Flag_non_norm <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/t.counts", comment.char="#", col.names = c("X1","chrom","start","end", "s","length","count"))
+IgG_non_norm <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/IgG_b.counts", comment.char="#", col.names = c("X1","chrom","start","end", "s","length","count"))
+
+
+
+
+IgG_reads<-dplyr::select(dplyr::filter(IgG_reads, count!=0),c("X1","count"))
+nrow(dplyr::filter(IgG_reads, count==0))
+IgG_b <- dplyr::select(dplyr::filter(IgG_b, count!=0),c("X1","count"))
+Flag_reads<- dplyr::select(dplyr::filter(Flag_reads, count!=0),c("X1","count"))
+t_reads<- dplyr::select(dplyr::filter(t, count!=0),c("X1","count"))
+nrow(dplyr::filter(IgG_non_norm, count==0))
+
+dummy_dd <- merge(IgG_reads,Flag_reads, by="X1", all.x=T)
+dummy_dd[is.na(dummy_dd)]<-0
+colnames(dummy_dd) <- c("loc","IgG","Flag")
+dummy_dd_melt <- melt(dummy_dd, "loc")
+
+
+
+dummy_d <- merge(IgG_b,t_reads, by="X1", all.x=T)
+dummy_d[is.na(dummy_d)]<-0
+colnames(dummy_d) <- c("loc","IgG","Flag")
+dummy_d_melt <- melt(dummy_d, "loc")
+
+png("plots/normalized_counts.png", width= 800, height= 500)
+ggplot(dummy_dd_melt, aes(x=value, color= variable))+geom_histogram(fill="white")+
+  labs(title="normalized read counts of peaks",x="normalized Counts", y = "Density", colour="")+
+  theme_minimal()+ scale_color_brewer(palette="Dark2")
+dev.off()
+
+png("plots/non_normalized_counts.png", width= 800, height= 500)
+ggplot(dummy_d_melt, aes(x=value, color= variable))+geom_histogram(fill="white")+
+  labs(title="not normalized read counts of peaks",x="Counts", y = "Density", colour="")+
+  theme_minimal()+ scale_color_brewer(palette="Dark2")
+dev.off()
+
+
+```
+```{r}
+
+Flag_non_norm
+
+IgG_non_norm
+
+Flag_non_norm$norm_counts <- (Flag_non_norm$count/Flag_non_norm$length)*100
+
+IgG_non_norm$norm_counts <- (IgG_non_norm$count/IgG_non_norm$length)*100
+
+Counts <- Flag_non_norm
+Counts$Flag_norm_counts <- (Flag_non_norm$count/Flag_non_norm$length)*1000
+Counts$IgG_norm_counts <- (IgG_non_norm$count/IgG_non_norm$length)*1000
+
+png("plots/Read_counts_under Peak.png", width= 600, height= 400)
+ggplot(Counts, aes(x=IgG_norm_counts, y=Flag_norm_counts))+geom_point(color="orange", alpha= 0.5,size=2)+
+  labs(title="Normalized Reads under Peaks",x="normalized IgG Reads", y = "normalized Flag Reads", colour="", size= 10)+
+  theme_minimal()+xlim(0,50)+geom_hline(yintercept=20, linetype="dashed", 
+                color = "black", size=0.9, alpha= 0.9)+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+selected_peaks <-dplyr::filter(Counts, Flag_norm_counts>=20)
+
+
+```
+
+```{r}
+# for whole genome
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+
+# for specific motifs (JASPAR2022)
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+
+pwms_Ascl1  <- toPWM(pfms.Ascl1)
+```
+convert the GRanges
+```{r}
+# create a GRanges object
+GR_selected_peaks <- GRanges(seqnames = as.character(selected_peaks$chrom),
+                        ranges = IRanges(start = selected_peaks$start, end = selected_peaks$end))
+
+
+
+#load the mm10 genome to get the dna sequences
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_selected_peaks <- getSeq(mm10, GR_selected_peaks)
+
+
+```
+
+
+
+
+will first see what motif are enriched within each peak set
+```{r}
+
+motif.enrichment.selected_peaks <- calcBinnedMotifEnrR(seqs = seqs_selected_peaks,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+
+se.seq.GR.motif.enrichment.selected_peaks <- motif.enrichment.selected_peaks
+
+
+
+ncol(motif.enrichment.selected_peaks)
+
+# convert to data frame
+df_se.seq.GR.motif.enrichment.selected_peaks <- rowData(se.seq.GR.motif.enrichment.selected_peaks)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.selected_peaks <- assay(motif.enrichment.selected_peaks, "negLog10Padj")[, 1] > 
+sel.motif.enrichment.selected_peaks[is.na(sel.motif.enrichment.selected_peaks)] <- FALSE
+df_se.seq.GR.motif.enrichment.selected_peaks_log_2enr <- assay(motif.enrichment.selected_peaks[sel.motif.enrichment.selected_peaks,], "log2enr")
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel.motif.enrichment.selected_peaks[is.na(sel.motif.enrichment.selected_peaks)] <- FALSE
+
+
+C<- as.data.frame(assay(motif.enrichment.selected_peaks,c("negLog10Padj")))
+C<- rownames_to_column(C, "Motif")
+
+C <- dplyr::filter(C,Motif== c("MA1100.1","MA1100.2", "MA1631.1"))
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+
+plotMotifHeatmaps(x = motif.enrichment.selected_peaks[sel.motif.enrichment.selected_peaks,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1, row_names_gp = gpar(fontsize = 0.2))
+
+export(GR_selected_peaks, "data/selected_Ascl1_20.bed", "bed")
+0.03456041
+````

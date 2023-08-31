@@ -1,0 +1,539 @@
+---
+title: "Peak_calling_with _pvalue"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+## Packages
+```{r echo=FALSE}
+setwd('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/')
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(circlize)
+library(GenomicAlignments)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(ChIPpeakAnno)
+library(ReactomePA)
+library(tibble)
+library(ggpubr)
+library(DiffBind)
+library(org.Mm.eg.db)
+library(diffloop)
+library(ggrepel)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(grid)
+library(gdata)
+```
+
+create conda environment (I will use the one created from davide)
+```{bash}
+```{bash}
+conda create --name seacr 
+
+conda install --name seacr -c bioconda r-base=4.2.1
+conda install --name seacr -c bioconda bedtools=2.30.0
+conda install --name seacr -c bioconda seacr=1.3
+conda install --name seacr -c bioconda deeptools=3.5.1
+
+```
+list env and connect
+```{bash}
+conda env list
+
+source activate seacr
+
+conda deactivate
+
+```
+
+# run seacr to call. peaks without IgG control based of 0.01 pvalue cutoff
+
+
+```{bash}
+
+#0.01
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R1.sorted.bedGraph 0.01 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R2.sorted.bedGraph 0.01 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.01.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R3.sorted.bedGraph 0.01 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.01.peaks
+```
+
+```{bash}
+
+#0.001
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R1.sorted.bedGraph 0.001 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R2.sorted.bedGraph 0.001 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.001.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R3.sorted.bedGraph 0.001 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.001.peaks
+```
+
+
+
+```{bash}
+
+#0.05
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R1.sorted.bedGraph 0.05 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R2.sorted.bedGraph 0.05 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.05.peaks
+
+
+SEACR_1.3.sh /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/01_bam_to_bedgraph/DMSO_Flag_R3.sorted.bedGraph 0.05 non stringent /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.05.peaks
+```
+
+converrt to bedgraphs
+```{bash}
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R1_p0.01.peaks.stringent.bed > DMSO_Flag_R1_p0.01.peaks.stringent.bedGraph
+
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R2_p0.01.peaks.stringent.bed > DMSO_Flag_R2_p0.01.peaks.stringent.bedGraph
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R3_p0.01.peaks.stringent.bed > DMSO_Flag_R3_p0.01.peaks.stringent.bedGraph
+
+rsync -aP hgdownload.soe.ucsc.edu::genome/admin/exe/linux.x86_64/bedGraphToBigWig ./
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R1_p0.01.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.01.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R2_p0.01.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.01.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R3_p0.01.peaks.bigWig
+
+
+
+
+```
+
+
+converrt to bedgraphs
+```{bash}
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R1_p0.001.peaks.stringent.bed > DMSO_Flag_R1_p0.001.peaks.stringent.bedGraph
+
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R2_p0.001.peaks.stringent.bed > DMSO_Flag_R2_p0.001.peaks.stringent.bedGraph
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R3_p0.001.peaks.stringent.bed > DMSO_Flag_R3_p0.001.peaks.stringent.bedGraph
+
+rsync -aP hgdownload.soe.ucsc.edu::genome/admin/exe/linux.x86_64/bedGraphToBigWig ./
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R1_p0.001.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.001.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R2_p0.001.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.001.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R3_p0.001.peaks.bigWig
+
+
+
+
+```
+converrt to bedgraphs
+```{bash}
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R1_p0.05.peaks.stringent.bed > DMSO_Flag_R1_p0.05.peaks.stringent.bedGraph
+
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R2_p0.05.peaks.stringent.bed > DMSO_Flag_R2_p0.05.peaks.stringent.bedGraph
+
+awk '{ print $1"\t"$2"\t"$3"\t"$5 }' DMSO_Flag_R3_p0.05.peaks.stringent.bed > DMSO_Flag_R3_p0.05.peaks.stringent.bedGraph
+
+#rsync -aP hgdownload.soe.ucsc.edu::genome/admin/exe/linux.x86_64/bedGraphToBigWig ./
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R1_p0.05.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.05.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R2_p0.05.peaks.bigWig
+
+/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/bedGraphToBigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.05.peaks.stringent.bedGraph chrom.sizes DMSO_Flag_R3_p0.05.peaks.bigWig
+
+
+
+
+```
+
+
+
+Copare bigwigfiles to mm10
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.01.peaks.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TES_mm10_VM23.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/test.gz -p 12 --missingDataAsZero
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/test.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/test.pdf --perGroup --samplesLabel R1 R2 R3 -T "T" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+```
+
+
+
+
+
+Compare bigwigfiles to center of top 10 peaks
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R2_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R3_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/top10prChIP.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks.gz -p 12 --missingDataAsZero --referencePoint center
+
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks.pdf --perGroup --samplesLabel  R2 R3 IgG -T "T" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/top10prChIP.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_pvalues.gz -p 12 --missingDataAsZero --referencePoint center
+
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_pvalues.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_pvalue.svg --perGroup --samplesLabel  "pvalue 0.01" "pvalue 0.001" "pvalue 0.05" IgG -T "Comparison betweeen differently called peaks" --legendLocation upper-left --plotHeight 15 --plotWidth 24 --plotFileFormat "svg"
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/top10prChIP.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_pvalues_w_ChIP.gz -p 12 --missingDataAsZero --referencePoint center
+
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_pvalues_w_ChIP.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/overtop10_newly_called_peaks_w_ChIP.svg --perGroup --samplesLabel  "pvalue 0.01" "pvalue 0.001" "pvalue 0.05" IgG ChIP -T "Comparison betweeen differently called peaks" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "svg"
+
+```
+
+import peaks to compare 
+
+```{r}
+CutnRun_peak_R1_IgG <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_2.bed')
+
+ChIP_peaks<- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/MmES_RVChIP_062_pv6_Ascl1_DBD_pool_peaks.broadPeak')
+
+CutnRun_peak_R1_pvalue_0.001 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.001.peaks.stringent.bed')
+
+CutnRun_peak_R1_pvalue_0.01 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.01.peaks.stringent.bed')
+
+CutnRun_peak_R1_pvalue_0.05 <- readPeakFile('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/SEACR_calledpeaks/DMSO_Flag_R1_p0.05.peaks.stringent.bed')
+
+```
+# get the counts
+```{r}
+
+count_df <- data.frame(name = c("ChIP",
+  "IgG (2/3)",
+  "pvalue 0.05","pvalue 0.01",
+                                "pvalue 0.001"), 
+                       n = c(length(ChIP_peaks),
+                         length(CutnRun_peak_R1_IgG),
+                             length(CutnRun_peak_R1_pvalue_0.05),
+                             length(CutnRun_peak_R1_pvalue_0.01),
+                             length(CutnRun_peak_R1_pvalue_0.001)
+                             ))
+  count_df$name<- as.factor(count_df$name)
+count_df$n <- as.numeric(count_df$n)
+png("plots/number_peaks.png", width = 600, height = 400)
+ggplot(count_df,aes(x=name, y=n))+geom_bar(stat= 'identity', fill="steelblue")+
+  labs(title="Number of Peaks",x="", y = "Count",size=5)+theme_minimal() +geom_text(aes(label=n),position=position_dodge(0.9),vjust=-0.2, size=5)+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+png("plots/Venndiagram_peakcalling.png", height = 500, width = 500)
+makeVennDiagram(Peaks=list(CutnRun_peak_R1_IgG,CutnRun_peak_R1_pvalue_0.05,
+                                  CutnRun_peak_R1_pvalue_0.01),
+                       NameOfPeaks=c("IgG (2/3)", "pvalue 0.05","pvalue 0.01"), fill=c( "steelblue1","steelblue2","steelblue3"), cex = 1.5)
+dev.off()
+
+name = c("seacr ChIP",
+  "Cutnrun IgG",
+  "Cutnrun pvalue 0.05","Cutnrun pvalue0.01",
+                                "Cutnrun pvalue 0.001")
+
+# add width of each peak
+ChIP_peaks$width <- width(ChIP_peaks)
+CutnRun_peak_R1_IgG$width <- width(CutnRun_peak_R1_IgG)
+CutnRun_peak_R1_pvalue_0.05$width <-  width(CutnRun_peak_R1_pvalue_0.05)
+CutnRun_peak_R1_pvalue_0.01$width <- width(CutnRun_peak_R1_pvalue_0.01)
+CutnRun_peak_R1_pvalue_0.001$width <- width(CutnRun_peak_R1_pvalue_0.001)
+
+
+ChIP_peaks_df<- dplyr::select(as.data.frame(ChIP_peaks),width.1)
+CutnRun_peak_R1_IgG_df<- dplyr::select(as.data.frame(CutnRun_peak_R1_IgG),width.1)
+CutnRun_peak_R1_pvalue_0.05_df<- dplyr::select(as.data.frame(CutnRun_peak_R1_pvalue_0.05),width.1)
+CutnRun_peak_R1_pvalue_0.01_df<- dplyr::select(as.data.frame(CutnRun_peak_R1_pvalue_0.01),width.1)
+CutnRun_peak_R1_pvalue_0.001_df<- dplyr::select(as.data.frame(CutnRun_peak_R1_pvalue_0.001),width.1)
+
+
+df <- cbindX(ChIP_peaks_df,CutnRun_peak_R1_IgG_df,CutnRun_peak_R1_pvalue_0.05_df,CutnRun_peak_R1_pvalue_0.01_df,CutnRun_peak_R1_pvalue_0.001_df)    
+colnames(df)<- c("ChIP","CutnRunIgG (2/3)","CutNRun 0.05","CutNRun 0.01","CutNRun 0.001")
+df_melt <- melt(df)
+
+df_melt$variable <- as.factor(df_melt$variable)
+
+
+df_melt[is.na(df_melt)] <- 0
+
+png("plots/width_peaks.png", width= 600, height= 400)
+ggplot(df_melt, aes(x=value, color= variable))+geom_density(size=1)+
+  labs(title="Width of peaks",x="Width of peaks", y = "Density", colour="", size=5)+
+  theme_minimal()+ scale_color_brewer(palette="Dark2")+ xlim(1,4000)+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+
+
+
+median(ChIP_peaks$width)
+median(CutnRun_peak_R1_IgG$width)
+median(CutnRun_peak_R1_pvalue_0.05$width)
+median(CutnRun_peak_R1_pvalue_0.01$width)
+median(CutnRun_peak_R1_pvalue_0.001$width)
+#258 chip
+#311 IgG
+#471 0.05
+#900. 0.01
+#854 0.001
+
+
+```
+
+see if Ascl1 is in these peaks
+
+```{r}
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+seqs_CutnRun_peak_R1_pvalue_0.05 <- getSeq(mm10, CutnRun_peak_R1_pvalue_0.05)
+
+motif.enrichment.CutnRun_peak_R1_pvalue_0.05 <- calcBinnedMotifEnrR(seqs = seqs_CutnRun_peak_R1_pvalue_0.05,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.05 <- motif.enrichment.CutnRun_peak_R1_pvalue_0.05
+
+
+
+ncol(motif.enrichment.CutnRun_peak_R1_pvalue_0.05)
+
+# convert to data frame
+df_se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.05 <- rowData(se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.05)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05 <- assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.05, "negLog10Padj")[, 1] > 5.0
+sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05[is.na(sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05)] <- FALSE
+df_se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.05_log_2enr <- assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.05[sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05,], "log2enr")
+
+f<- as.data.frame(assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.05,"log2enr"))
+f<- rownames_to_column(f, "Motif")
+
+f <- dplyr::filter(f,Motif== c("MA1100.1","MA1100.2"))
+CutnRun_peak_R1_pvalue_0.01
+
+png('plots/plotMotifHeatmaps_pvalue0.05.png',width= 800, height = 1200)
+
+plotMotifHeatmaps(x = motif.enrichment.CutnRun_peak_R1_pvalue_0.05[sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+#MA1100.2	0.06757037
+
+```
+see if Ascl1 is in these peaks
+
+```{r}
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+
+pwms_Ascl1  <- toPWM(pfms.Ascl1 )
+
+
+Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- calcBinnedMotifEnrR(seqs = seqs_CutnRun_peak_R1_pvalue_0.01,
+                           pwmL = pwms_Ascl1,
+                           background = "genome",
+                           genome = mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+se.seq.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01
+
+
+
+ncol(Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01)
+
+# convert to data frame
+df_se.seq.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- rowData(se.seq.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- assay(Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01, "negLog10Padj")[, 1] > 0.5
+sel.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01[is.na(sel.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01)] <- FALSE
+df_se.seq.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01_log_2enr <- assay(Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01[sel.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01,], "log2enr")
+
+
+
+png('plots/plotMotifHeatmaps_ASV_Flag.png',  
+    width = 680, height = 1080,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+
+plotMotifHeatmaps(x = Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01[sel.Ascl1_motif.enrichment.CutnRun_peak_R1_pvalue_0.01,], which.plots = c("log2enr"), maxEnr = 0.7, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+
+
+```
+
+
+see if Ascl1 is in these peaks also in ChIP
+
+```{r}
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+seqs_ChIP <- getSeq(mm10, ChIP_peaks)
+
+motif.enrichment.ChIP <- calcBinnedMotifEnrR(seqs = seqs_ChIP,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+se.seq.motif.enrichment.ChIP <- motif.enrichment.ChIP
+
+
+
+ncol(motif.enrichment.ChIP)
+
+# convert to data frame
+df_se.seq.motif.enrichment.ChIP <- rowData(se.seq.motif.ChIP)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.ChIP <- assay(motif.enrichment.ChIP, "negLog10Padj")[, 1] > 150
+sel.motif.enrichment.ChIP[is.na(sel.motif.enrichment.ChIP)] <- FALSE
+df_se.seq.motif.enrichment.ChIP <- assay(motif.enrichment.ChIP[sel.motif.enrichment.ChIP,], "log2enr")
+
+C<- as.data.frame(assay(motif.enrichment.ChIP,"log2enr"))
+C<- rownames_to_column(C, "Motif")
+
+C <- dplyr::filter(C,Motif== c("MA1100.1","MA1100.2"))
+
+png('plots/plotMotifHeatmaps_ChIP.png',width= 800, height = 1200)
+
+plotMotifHeatmaps(x = motif.enrichment.ChIP[sel.motif.enrichment.ChIP,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+#MA1100.2	0.06757037
+#MA1100.2	1.761352
+```
+for cutnRun Igg
+```{r}
+
+
+motif.enrichment.CutnRun_peak_R1_IgG <- calcBinnedMotifEnrR(seqs = seqs_CutnRun_peak_R1_IgG,
+                           pwmL = pwms_Ascl1,
+                           background = "genome",
+                           genome = mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+se.seq.motif.enrichment.CutnRun_peak_R1_IgG <- motif.enrichment.CutnRun_peak_R1_IgG
+
+
+
+ncol(motif.enrichment.CutnRun_peak_R1_IgG)
+
+# convert to data frame
+df_se.seq.motif.enrichment.CutnRun_peak_R1_IgG <- rowData(se.seq.motif.CutnRun_peak_R1_IgG)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.CutnRun_peak_R1_IgG <- assay(motif.enrichment.CutnRun_peak_R1_IgG, "negLog10Padj")[, 1] > 0.5
+sel.motif.enrichment.CutnRun_peak_R1_IgG[is.na(sel.motif.enrichment.CutnRun_peak_R1_IgG)] <- FALSE
+df_se.seq.motif.enrichment.CutnRun_peak_R1_IgG <- assay(motif.enrichment.CutnRun_peak_R1_IgG[sel.motif.enrichment.CutnRun_peak_R1_IgG,], "log2enr")
+
+P<- as.data.frame(assay(motif.enrichment.CutnRun_peak_R1_IgG,"log2enr"))
+P<- rownames_to_column(P, "Motif")
+
+P <- dplyr::filter(P,Motif== c("MA1100.1","MA1100.2"))
+
+svg('plots/plotMotifHeatmaps_ChIP.png')
+
+plotMotifHeatmaps(x = motif.enrichment.CutnRun_peak_R1_IgG[sel.motif.enrichment.CutnRun_peak_R1_IgG,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+#MA1100.2	0.06757037 0.05
+#MA1100.2	1.761352 chip
+
+#MA1100.2	0.01181753	igg
+#MA1100.2	0.03722239 0.01
+```
+
+
+```{r}
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+seqs_CutnRun_peak_R1_pvalue_0.01 <- getSeq(mm10, CutnRun_peak_R1_pvalue_0.01)
+
+motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- calcBinnedMotifEnrR(seqs = seqs_CutnRun_peak_R1_pvalue_0.01,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- motif.enrichment.CutnRun_peak_R1_pvalue_0.01
+
+
+
+ncol(motif.enrichment.CutnRun_peak_R1_pvalue_0.01)
+
+# convert to data frame
+df_se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- rowData(se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.01)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.01 <- assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.01, "negLog10Padj")[, 1] > 0.5
+sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.01[is.na(sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.01)] <- FALSE
+df_se.seq.motif.enrichment.CutnRun_peak_R1_pvalue_0.01_log_2enr <- assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.01[sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.01,], "log2enr")
+
+g<- as.data.frame(assay(motif.enrichment.CutnRun_peak_R1_pvalue_0.01,"log2enr"))
+g<- rownames_to_column(g, "Motif")
+
+g <- dplyr::filter(g,Motif== c("MA1100.1","MA1100.2"))
+
+png('plots/CutnRun_peak_R1_pvalue_0.01.png',width= 800, height = 1200)
+
+plotMotifHeatmaps(x = motif.enrichment.CutnRun_peak_R1_pvalue_0.01[sel.motif.enrichment.CutnRun_peak_R1_pvalue_0.05,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+#MA1100.2	0.06757037
+
+```

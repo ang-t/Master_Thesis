@@ -1,0 +1,594 @@
+---
+title: "Binding_prediction_of_Ascl1_NeuroD1"
+author: "Angela Topic"
+date: "10/6/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r echo = FALSE, eval=FALSE}
+### packages ####
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(corrplot)
+library(pheatmap)
+library(apeglm)
+library(monaLisa)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(tibble)
+library(ggpubr)
+
+
+setwd('~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/')
+
+```
+
+Get all datasets with genes over and under expressed an rename fist column
+```{r}
+expr_genes_ascl1_greater_1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/expr_genes_ascl1_greater_1.tsv", sep="")
+expr_genes_ascl1_greater_1 <- tibble::rownames_to_column(expr_genes_ascl1_greater_1, 'mgi_symbol') 
+
+expr_genes_NeuroD1_greater_1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/expr_genes_NeuroD1_greater_1.tsv", sep="")
+expr_genes_NeuroD1_greater_1 <- tibble::rownames_to_column(expr_genes_NeuroD1_greater_1, 'mgi_symbol') 
+
+  expr_genes_Ascl1_smaller_min1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/expr_genes_Ascl1_smaller_min1.tsv", sep="")
+expr_genes_Ascl1_smaller_min1<- tibble::rownames_to_column(expr_genes_Ascl1_smaller_min1, 'mgi_symbol') 
+
+  expr_genes_NeuroD1_smaller_min1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/expr_genes_NeuroD1_smaller_min1.tsv", sep="")
+expr_genes_NeuroD1_smaller_min1 <- tibble::rownames_to_column(expr_genes_NeuroD1_smaller_min1, 'mgi_symbol') 
+
+Ascl1_all_genes<- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/all_genes_Ascl1.tsv", sep="")
+
+Ascl1_all_genes <- tibble::rownames_to_column(Ascl1_all_genes, 'mgi_symbol') 
+
+expr_genes_ascl1_Empty_greater_1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/expr_genes_ascl1_Empty_greater_1.tsv", sep="")
+expr_genes_ascl1_Empty_greater_1  <- tibble::rownames_to_column(expr_genes_ascl1_Empty_greater_1 , 'mgi_symbol') 
+```
+
+Get all gene ID's 
+
+```{r}
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info_Ascl1_up <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_ascl1_greater_1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+biomart_info_Ascl1_down <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_Ascl1_smaller_min1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+biomart_info_NeuroD1_up <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_NeuroD1_greater_1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+biomart_info_NeuroD1_down <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_NeuroD1_smaller_min1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+biomart_info_all_Ascl1<- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = Ascl1_all_genes$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+biomart_info_Ascl1_Empty<- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_ascl1_Empty_greater_1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+```
+
+Merge data sets
+```{r}
+expr_genes_ascl1_greater_1.merged <- dplyr::inner_join(expr_genes_ascl1_greater_1, biomart_info_Ascl1_up, by = "mgi_symbol")
+sum(is.na(expr_genes_ascl1_greater_1.merged$entrezgene_id))
+
+expr_genes_Ascl1_smaller_min1.merged <- dplyr::inner_join(expr_genes_Ascl1_smaller_min1, biomart_info_Ascl1_down, by = "mgi_symbol")
+sum(is.na(expr_genes_Ascl1_smaller_min1.merged $entrezgene_id))
+
+expr_genes_NeuroD1_greater_1.merged <- dplyr::inner_join(expr_genes_NeuroD1_greater_1, biomart_info_NeuroD1_up, by = "mgi_symbol")
+sum(is.na(expr_genes_NeuroD1_greater_1.merged$entrezgene_id))
+
+expr_genes_NeuroD1_smaller_min1.merged <- dplyr::inner_join(expr_genes_NeuroD1_smaller_min1, biomart_info_NeuroD1_down, by = "mgi_symbol")
+sum(is.na(expr_genes_NeuroD1_smaller_min1.merged$entrezgene_id))
+
+
+
+
+
+expr_genes_Ascl1_all_genes<- dplyr::inner_join(Ascl1_all_genes, biomart_info_all_Ascl1, by = "mgi_symbol")
+
+expr_genes_Ascl1_all_genes <- drop_na(expr_genes_Ascl1_all_genes)
+
+
+expr_genes_ascl1_Empty_greater_1.merged <- dplyr::inner_join(expr_genes_ascl1_Empty_greater_1 , biomart_info_Ascl1_Empty, by = "mgi_symbol")
+sum(is.na(expr_genes_ascl1_Empty_greater_1.merged$entrezgene_id))
+expr_genes_ascl1_Empty_greater_1.merged <- drop_na(expr_genes_ascl1_Empty_greater_1.merged)
+
+Ascl1_all_genes
+
+head(expr_genes_ascl1_greater_1.merged)
+head(expr_genes_Ascl1_smaller_min1.merged)
+head(expr_genes_NeuroD1_greater_1.merged)
+head(expr_genes_NeuroD1_smaller_min1.merged)
+
+```
+
+
+To extract GR of promoter regions of up/down reg genes
+```{r}
+ucsc_mm10 <- TxDb.Mmusculus.UCSC.mm10.knownGene
+g <- genes(ucsc_mm10)
+head (g)
+
+p <- promoters(genes(ucsc_mm10), upstream = 2000, downstream = 200)
+head (p)
+
+list.expr_genes_ascl1_greater_1 <-unique(expr_genes_ascl1_greater_1.merged$entrezgene_id)
+
+list.expr_genes_Ascl1_smaller_min1 <-unique(expr_genes_Ascl1_smaller_min1.merged$entrezgene_id)
+
+list.expr_genes_NeuroD1_greater_1 <-unique(expr_genes_NeuroD1_greater_1.merged$entrezgene_id)
+
+list.expr_genes_NeuroD1_smaller_min1 <-unique(expr_genes_NeuroD1_smaller_min1.merged$entrezgene_id)
+
+list.expr_genes_Ascl1_all_genes <-unique(expr_genes_Ascl1_all_genes$entrezgene_id)
+expr_genes_Ascl1_all_genes
+
+list.expr_genes_ascl1_Empty_greater_1 <-unique(expr_genes_ascl1_Empty_greater_1.merged$entrezgene_id)
+
+
+GR.list.expr_genes_ascl1_greater_1<- p[(elementMetadata(p)[,1] %in% list.expr_genes_ascl1_greater_1)]
+GR.list.expr_genes_Ascl1_smaller_min1<- p[(elementMetadata(p)[,1] %in% list.expr_genes_Ascl1_smaller_min1)]
+GR.list.expr_genes_NeuroD1_greater_1<- p[(elementMetadata(p)[,1] %in% list.expr_genes_NeuroD1_greater_1)]
+GR.list.expr_genes_NeuroD1_smaller_min1<- p[(elementMetadata(p)[,1] %in% list.expr_genes_NeuroD1_smaller_min1)]
+GR.list.expr_genes_Ascl1_all_genes<- p[(elementMetadata(p)[,1] %in% list.expr_genes_Ascl1_all_genes)]
+GR.list.expr_genes_ascl1_Empty_greater_1<- p[(elementMetadata(p)[,1] %in% 
+list.expr_genes_ascl1_Empty_greater_1)]
+
+
+```
+Get the actual sequences
+```{r}
+seq.GR.list.expr_genes_ascl1_greater_1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_ascl1_greater_1)
+head(seq.GR.list.expr_genes_ascl1_greater_1,20 )
+
+seq.GR.list.expr_genes_Ascl1_smaller_min1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_Ascl1_smaller_min1)
+head(seq.GR.list.expr_genes_Ascl1_smaller_min1,20 )
+
+seq.GR.list.expr_genes_NeuroD1_greater_1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_NeuroD1_greater_1)
+head(seq.GR.list.expr_genes_NeuroD1_greater_1,20 )
+
+seq.GR.list.expr_genes_NeuroD1_smaller_min1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_NeuroD1_smaller_min1)
+head(seq.GR.list.expr_genes_NeuroD1_smaller_min1,20 )
+
+seq.GR.list.expr_genes_Ascl1_all_genes <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_Ascl1_all_genes)
+head(seq.GR.list.expr_genes_Ascl1_all_genes,20 )
+
+seq.GR.list.expr_genes_ascl1_Empty_greater_1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_ascl1_Empty_greater_1)
+head(seq.GR.list.expr_genes_Ascl1_all_genes,20 )
+```
+get the motifs
+
+```{r}
+
+pfms_A_D <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1", 
+                                    "MA1109.1"))
+
+```
+
+Data set with dna sequence
+
+```{r}
+
+df_ascl1_greater_1 <- as.data.frame(seq.GR.list.expr_genes_ascl1_greater_1)
+df_ascl1_greater_1 <- rownames_to_column(df_ascl1_greater_1, 'entrezgene_id')
+biomart_info_Ascl1_up$entrezgene_id<- as.character(biomart_info_Ascl1_up$entrezgene_id)
+df_ascl1_greater_1_merge <- dplyr::inner_join(df_ascl1_greater_1, biomart_info_Ascl1_up, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+df_ascl1_min_1 <- as.data.frame(seq.GR.list.expr_genes_Ascl1_smaller_min1)
+df_ascl1_min_1 <- rownames_to_column(df_ascl1_min_1, 'entrezgene_id')
+biomart_info_Ascl1_down$entrezgene_id<- as.character(biomart_info_Ascl1_down$entrezgene_id)
+df_ascl1_min_1_merge <- dplyr::inner_join(df_ascl1_min_1, biomart_info_Ascl1_down, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+df_NeuroD1_greater_1 <- as.data.frame(seq.GR.list.expr_genes_NeuroD1_greater_1)
+df_NeuroD1_greater_1 <- rownames_to_column(df_NeuroD1_greater_1, 'entrezgene_id')
+biomart_info_NeuroD1_up$entrezgene_id<- as.character(biomart_info_NeuroD1_up$entrezgene_id)
+df_NeuroD1_greater_1_merge <- dplyr::inner_join(df_NeuroD1_greater_1, biomart_info_NeuroD1_up, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+df_NeuroD1_min_1 <- as.data.frame(seq.GR.list.expr_genes_NeuroD1_smaller_min1)
+df_NeuroD1_min_1 <- rownames_to_column(df_NeuroD1_min_1, 'entrezgene_id')
+biomart_info_NeuroD1_down$entrezgene_id<- as.character(biomart_info_NeuroD1_down$entrezgene_id)
+df_NeuroD1_min_1_merge <- dplyr::inner_join(df_NeuroD1_min_1, biomart_info_NeuroD1_down, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+
+df_all_Ascl1<- as.data.frame(seq.GR.list.expr_genes_Ascl1_all_genes)
+df_all_Ascl1<- rownames_to_column(df_all_Ascl1, 'entrezgene_id')
+biomart_info_all_Ascl1$entrezgene_id<- as.character(biomart_info_all_Ascl1$entrezgene_id)
+df_all_Ascl1_merge <- dplyr::inner_join(df_all_Ascl1, biomart_info_all_Ascl1, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+dfascl1_Empty_greater_1<- as.data.frame(seq.GR.list.expr_genes_ascl1_Empty_greater_1)
+df.ascl1_Empty_greater_1<- rownames_to_column(dfascl1_Empty_greater_1, 'entrezgene_id')
+biomart_info_Ascl1_Empty$entrezgene_id<- as.character(biomart_info_Ascl1_Empty$entrezgene_id)
+df.ascl1_Empty_greater_1_merge <- dplyr::inner_join(df.ascl1_Empty_greater_1, biomart_info_Ascl1_Empty, by = 'entrezgene_id')%>%
+  dplyr::select('entrezgene_id',"mgi_symbol",'x')
+
+df.ascl1_Empty_greater_1_merge
+```
+
+
+
+```{r}
+### first try
+extract_motif <- function(motif, dds){
+  list_of_genes_w_motif <- list()
+  len <- nchar(motif)
+  for (i in nrow(dds)){
+      leftlims <- 1:(nchar(dds$x[i]) - (len - 1))
+  rightlims <- len:nchar(dds$x[i])
+  dds.substrings <- mapply(substr, dds$x[i],leftlims, rightlims,USE.NAMES=FALSE)
+  }
+  
+                                               
+  return(dds.substrings)
+}
+
+## extract one motif of ASCL1
+pfms_A1 <- getMatrixByID(JASPAR2020, c("MA1100.1"))
+pfms_A1  <- toPWM(pfms_A1)
+
+### estimate which promoter sequence do have this
+siteset_Ascl1_up <- searchSeq(pfms_A1 , seq.GR.list.expr_genes_ascl1_greater_1, strand = '+',min.score="80%")
+siteset_Ascl1_up_df <- as(siteset_Ascl1_up, "data.frame")
+length(unique(siteset_Ascl1_up_df$seqnames))
+
+
+siteset_Ascl1_down <- searchSeq(pfms_A1 , seq.GR.list.expr_genes_Ascl1_smaller_min1, strand = '+')
+siteset_Ascl1_down_df <- as(siteset_Ascl1_down, "data.frame")
+
+siteset_Ascl1_all <- searchSeq(pfms_A1 , seq.GR.list.expr_genes_Ascl1_all_genes, strand = '+',min.score="80%")
+
+siteset_Ascl1_all  <- as(siteset_Ascl1_all , "data.frame")
+length(unique(siteset_Ascl1_all$seqnames))
+length(seq.GR.list.expr_genes_Ascl1_all_genes)
+
+
+siteset_Ascl1_Empty_up_1 <- searchSeq(pfms_A1 , seq.GR.list.expr_genes_ascl1_Empty_greater_1, strand = '+',min.score="80%")
+siteset_Ascl1_Empty_up_1  <- as(siteset_Ascl1_Empty_up_1  , "data.frame")
+length(unique(siteset_Ascl1_Empty_up_1$seqnames))
+length(seq.GR.list.expr_genes_ascl1_Empty_greater_1)
+
+
+### change for other threshold
+write.table(siteset_Ascl1_up_df, file= 'Ascl1_motif_up_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(siteset_Ascl1_down_df, file= 'Ascl1_motif_down_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(siteset_Ascl1_down_df, file= 'Ascl1_motif_down_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(siteset_Ascl1_Empty_up_1, file= 'Ascl1_Empty_up_1_motif_up_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+
+length(seq.GR.list.expr_genes_ascl1_greater_1)#353
+length(unique(siteset_Ascl1_up_df$seqnames))#344
+
+
+length(seq.GR.list.expr_genes_Ascl1_smaller_min1)#182
+length(unique(siteset_Ascl1_down_df$seqnames))#179
+
+
+up_genes_with_Ascl1 <- unique(siteset_Ascl1_up_df$seqnames)
+down_genes_with_Ascl1 <- unique(siteset_Ascl1_down_df$seqnames)
+
+up_genes_with_Ascl1_Empty <- unique(siteset_Ascl1_Empty_up_1$seqnames)
+
+p_value <- pvalues(siteset, type= "TFMPvalue")
+head(p_value)
+
+
+```
+
+
+
+```{r}
+df_up_genes_with_Ascl1 <- df_ascl1_greater_1_merge %>% filter(entrezgene_id %in% up_genes_with_Ascl1)
+
+df_down_genes_with_Ascl1 <- df_ascl1_min_1_merge %>% filter(entrezgene_id %in% down_genes_with_Ascl1)
+
+df_up_genes_with_Ascl1_Empty <- df.ascl1_Empty_greater_1_merge %>% filter(entrezgene_id %in% up_genes_with_Ascl1_Empty)
+
+dd<- read_rds("../R_scripts/Datasets/dd.rds")
+
+res_Ascl1_Empty <- results(dd, contrast=c("cell_type_and_induction","Ascl1_ASV", "Empty_ASV"))
+res_Ascl1_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV", "Ascl1_DMSO"), type="norm")
+
+
+res_Ascl1_ASV_over_Empty_ASV <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV", "Empty_ASV"), type= 'norm')
+res_Ascl1_ASV_over_Empty_ASV_df <- as.data.frame(res_Ascl1_ASV_over_Empty_ASV)
+
+res_Ascl1_ASV_over_DMSO_df <- as.data.frame(res_Ascl1_ASV_over_DMSO)
+
+
+
+res_Ascl1_ASV_over_DMSO_df_selected <- res_Ascl1_ASV_over_DMSO_df %>% filter(rownames(res_Ascl1_ASV_over_DMSO_df) %in% df_up_genes_with_Ascl1$mgi_symbol)
+
+nrow(res_Ascl1_ASV_over_DMSO_df_selected)
+
+
+res_Ascl1_ASV_over_DMSO_df$Ascl1_motif <- NA
+
+
+
+for (i in 1:nrow(res_Ascl1_ASV_over_DMSO_df)){
+  if (is.element(rownames(res_Ascl1_ASV_over_DMSO_df[i,]) , df_up_genes_with_Ascl1$mgi_symbol)){
+  res_Ascl1_ASV_over_DMSO_df$Ascl1_motif[i] <- 1
+  }
+  else {
+    res_Ascl1_ASV_over_DMSO_df$Ascl1_motif[i] <- 0
+  }
+}
+
+for (i in 1:nrow(res_Ascl1_ASV_over_DMSO_df)){
+  if (is.element(rownames(res_Ascl1_ASV_over_DMSO_df[i,]) ,df_down_genes_with_Ascl1$mgi_symbol)){
+  res_Ascl1_ASV_over_DMSO_df$Ascl1_motif[i] <- 1
+  }
+
+}
+
+nrow(filter(res_Ascl1_ASV_over_DMSO_df, Ascl1_motif==1))
+
+res_Ascl1_ASV_over_DMSO_df$Ascl1_motif  <- as.factor(res_Ascl1_ASV_over_DMSO_df$Ascl1_motif)
+
+ Ascl1_plott<- ggplot()+ geom_point(res_Ascl1_ASV_over_DMSO_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= Ascl1_motif), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Ascl1 DMSO non-Induced')+ theme_classic2()+ 
+  ylab('Log2 Mean Expression')+
+  xlab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+  
+  
+write.table(res_Ascl1_ASV_over_DMSO_df, file= 'Ascl1_ASV_over_DMSO_motif_presence.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+
+
+
+res_Ascl1_ASV_over_Empty_ASV_df <- as.data.frame(res_Ascl1_Empty)
+
+res_Ascl1_ASV_over_DMSO_df_selected <- res_Ascl1_ASV_over_Empty_ASV_df %>% filter(rownames(res_Ascl1_ASV_over_Empty_ASV_df ) %in% df_up_genes_with_Ascl1_Empty$mgi_symbol)
+
+
+
+res_Ascl1_ASV_over_Empty_ASV_df$Ascl1_motif <- NA
+
+
+
+for (i in 1:nrow(res_Ascl1_ASV_over_Empty_ASV_df)){
+  if (is.element(rownames(res_Ascl1_ASV_over_Empty_ASV_df[i,]) , genes_with_Ascl1_Empty$mgi_symbol)){
+  res_Ascl1_ASV_over_Empty_ASV_df$Ascl1_motif[i] <- 1
+  }
+  else {
+    res_Ascl1_ASV_over_Empty_ASV_df$Ascl1_motif[i] <- 0
+  }
+}
+
+
+res_Ascl1_ASV_over_Empty_ASV_df[res_Ascl1_ASV_over_Empty_ASV_df$Ascl1_motif==1,]
+
+write.table(res_Ascl1_ASV_over_Empty_ASV_df, file= 'Datasets/Ascl1_ASV_over_Empty_motif_presence.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+
+# PNG device
+png("Ascl1_motif_presence.png")
+
+# Code
+Ascl1_plott
+
+# Close device
+dev.off()
+
+res_Ascl1_ASV_over_DMSO_df <- read.table('Ascl1_ASV_over_DMSO_motif_presence.tsv')
+str(res_Ascl1_ASV_over_DMSO_df)
+
+
+res_Ascl1_ASV_over_Empty_ASV$threshold <- 0
+res_Ascl1_ASV_over_Empty_ASV$threshold[res_Ascl1_ASV_over_Empty_ASV$log2FoldChange < -1] <- 1
+res_Ascl1_ASV_over_Empty_ASV$threshold[res_Ascl1_ASV_over_Empty_ASV$log2FoldChange > 1] <- 1
+res_Ascl1_ASV_over_Empty_ASV$threshold <- as.factor(res_Ascl1_ASV_over_Empty_ASV$threshold)
+
+
+ Ascl1_Empty_plot<- ggplot()+ geom_point(res_Ascl1_ASV_over_Empty_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange,color = threshold), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Empty ASV Induced')+ theme_classic2()+ 
+  ylab('Log2 Mean Expression')+
+  xlab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = "none")
+  
+
+# PNG device
+png("Ascl1_Empty_plot.png")
+
+# Code
+Ascl1_Empty_plot
+
+# Close device
+dev.off()
+```
+
+```{r}
+
+
+pfms_NeuroD1 <- getMatrixByID(JASPAR2020, c("MA1109.1"))
+pfms_NeuroD1  <- toPWM(pfms_NeuroD1)
+
+### estimate which promoter sequence do have this
+siteset_NeuroD1_up <- searchSeq(pfms_NeuroD1 , seq.GR.list.expr_genes_NeuroD1_greater_1, strand = '+',min.score="80%")
+siteset_NeuroD1_up_df <- as(siteset_NeuroD1_up, "data.frame")
+length(unique(siteset_NeuroD1_up_df$seqnames))
+
+
+siteset_NeuroD1_down <- searchSeq(pfms_NeuroD1 , seq.GR.list.expr_genes_NeuroD1_smaller_min1, strand = '+')
+siteset_NeuroD1_down_df <- as(siteset_NeuroD1_down, "data.frame")
+
+
+### change for other threshold
+write.table(siteset_NeuroD1_up_df, file= 'NeuroD1_motif_up_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(siteset_NeuroD1_down_df, file= 'NeuroD1_motif_down_reg_genes.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+
+length(seq.GR.list.expr_genes_NeuroD1_greater_1)#18
+length(unique(siteset_NeuroD1_up_df$seqnames))#18
+
+
+length(seq.GR.list.expr_genes_NeuroD1_smaller_min1)#7
+length(unique(siteset_NeuroD1_down_df$seqnames))#7
+
+up_genes_with_NeuroD1 <- unique(siteset_NeuroD1_up_df$seqnames)
+down_genes_with_NeuroD1 <- unique(siteset_NeuroD1_down_df$seqnames)
+
+
+
+df_up_genes_with_NeuroD1 <- df_NeuroD1_greater_1_merge %>% filter(entrezgene_id %in% up_genes_with_NeuroD1)
+
+df_down_genes_with_NeuroD1 <- df_NeuroD1_min_1_merge %>% filter(entrezgene_id %in% down_genes_with_NeuroD1)
+
+dd<- read_rds("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/Datasets/dd.rds")
+res_NeuroD1_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","NeuroD1_ASV", "NeuroD1_DMSO"), type="norm")
+res_NeuroD1_ASV_over_Empt_ASV <- lfcShrink(dd, contrast = c("cell_type_and_induction","NeuroD1_ASV", "Empty_ASV"), type="norm")
+
+res_NeuroD1_ASV_over_DMSO_df <- as.data.frame(res_NeuroD1_ASV_over_DMSO)
+
+res_NeuroD1_ASV_over_Empt_ASV <- as.data.frame(res_NeuroD1_ASV_over_Empt_ASV)
+
+res_NeuroD1_ASV_over_DMSO_df_selected <- res_NeuroD1_ASV_over_DMSO_df %>% filter(rownames(res_NeuroD1_ASV_over_DMSO_df) %in% df_up_genes_with_NeuroD1$mgi_symbol)
+
+nrow(res_NeuroD1_ASV_over_DMSO_df_selected)
+
+
+res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif <- NA
+
+
+
+for (i in 1:nrow(res_NeuroD1_ASV_over_DMSO_df)){
+  if (is.element(rownames(res_NeuroD1_ASV_over_DMSO_df[i,]) , df_up_genes_with_NeuroD1$mgi_symbol)){
+  res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif[i] <- 1
+  }
+  else {
+    res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif[i] <- 0
+  }
+}
+
+for (i in 1:nrow(res_NeuroD1_ASV_over_DMSO_df)){
+  if (is.element(rownames(res_NeuroD1_ASV_over_DMSO_df[i,]) ,df_down_genes_with_NeuroD1$mgi_symbol)){
+  res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif[i] <- 1
+  }
+
+}
+
+nrow(filter(res_NeuroD1_ASV_over_DMSO_df, NeuroD1_motif==1))
+
+res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif  <- as.factor(res_NeuroD1_ASV_over_DMSO_df$NeuroD1_motif)
+
+res_NeuroD1_ASV_over_Empt_ASV$
+png("Plots/NeuroD1_Empty_sig.png")
+ggplot()+ geom_point(res_NeuroD1_ASV_over_Empt_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('NeuroD1 ASV induced / Empty ASV Induced')+ theme_classic2()+ 
+  ylab('Log2 Mean Expression')+
+  xlab('Log2 Fold Change') + ylim(-3,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('NeuroD1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = "none") 
+dev.off()
+
+png("Plots/Ascl1_Empty_sign.png")
+ggplot()+ geom_point(res_Ascl1_ASV_over_Empty_ASV_df ,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1 ASV induced / Empty ASV Induced')+ theme_classic2()+ 
+  ylab('Log2 Mean Expression')+
+  xlab('Log2 Fold Change') + ylim(-3,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('NeuroD1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = "none") 
+dev.off()
+
+
+write.table(res_NeuroD1_ASV_over_DMSO_df, file= 'NeuroD1_ASV_over_DMSO_motif_presence.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+
+
+res_NeuroD1_ASV_over_DMSO_df <- read.table('NeuroD1_ASV_over_DMSO_motif_presence.tsv')
+str(res_Ascl1_ASV_over_DMSO_df)
+```
+```{r}
+is.element(rownames(filter(res_NeuroD1_ASV_over_DMSO_df, NeuroD1_motif==1)),rownames(filter(res_Ascl1_ASV_over_DMSO_df, Ascl1_motif==1)))
+setdiff(rownames(filter(res_NeuroD1_ASV_over_DMSO_df, NeuroD1_motif==1)),rownames(filter(res_Ascl1_ASV_over_DMSO_df, Ascl1_motif==1)))
+
+filter(res_NeuroD1_ASV_over_DMSO_df, rownames(res_NeuroD1_ASV_over_DMSO_df) %in% c("Cbr3","Phlda2","Rhox6","S100a6"))
+
+```
+
+```{r}
+genes_Ascl1_Symbols <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/genes_Ascl1_Symbols.csv", sep="")
+
+res_Ascl1_ASV_over_Empty_ASV_df$ChIP <- NA
+
+
+
+for (i in 1:nrow(res_Ascl1_ASV_over_Empty_ASV_df)){
+  if (is.element(rownames(res_Ascl1_ASV_over_Empty_ASV_df[i,]) , genes_Ascl1_Symbols$genes_Ascl1_Symbols)){
+  res_Ascl1_ASV_over_Empty_ASV_df$ChIP[i] <- 1
+  }
+  else {
+    res_Ascl1_ASV_over_Empty_ASV_df$ChIP[i] <- 0
+  }
+}
+
+res_Ascl1_ASV_over_Empty_ASV_df$ChIP <- as.factor(res_Ascl1_ASV_over_Empty_ASV_df$ChIP)
+
+
+png("Plots/Ascl1_Empty_inChIP.png")
+ggplot()+ geom_point(res_Ascl1_ASV_over_Empty_ASV_df ,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= ChIP), cex = 0.7) + ggtitle('Ascl1 ASV induced / Empty ASV Induced')+ theme_classic2()+ 
+  ylab('Log2 Mean Expression')+
+  xlab('Log2 Fold Change') + ylim(-3,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('in ChIP-seq data'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position =  c(0.88, 0.9)) 
+dev.off()
+
+```
+
+```{r}
+
+```
+
+
+
+
+

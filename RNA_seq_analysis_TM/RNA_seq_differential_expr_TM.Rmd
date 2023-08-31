@@ -1,0 +1,542 @@
+---
+title: "RNAseq analysis with data from TM"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo = FALSE, eval=FALSE}
+### packages ####
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(corrplot)
+library(pheatmap)
+library(apeglm)
+library(monaLisa)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(tibble)
+```
+
+### make sample file
+
+```{r}
+path_to_file <- "/home/ubuntu/MOUNT3/angela/tm_rna_seq/"
+file_names <- list.files(path_to_file)[1:18]
+sample_names <- c('Ascl1_nonInduced_REP1', 
+                  'Ascl1_nonInduced_REP2',  
+                  'Ascl1_nonInduced_REP3', 
+                  'Ascl1_ASV_REP1', 
+                  'Ascl1_ASV_REP2', 
+                  'Ascl1_ASV_REP3', 
+                  'Empty_nonInduced_REP1',  
+                  'Empty_nonInduced_REP2', 
+                  'Empty_nonInduced_REP3', 
+                  'Empty_ASV_REP1', 
+                  'Empty_ASV_REP2',  
+                  'Empty_ASV_REP3', 
+                  'NeuroD1_nonInduced_REP1', 
+                  'NeuroD1_nonInduced_REP2', 
+                  'NeuroD1_nonInduced_REP3', 
+                  'NeuroD1_ASV_REP1', 
+                  'NeuroD1_ASV_REP2', 
+                  'NeuroD1_ASV_REP3')
+
+samplesheet <- data.frame(sample = c(sample_names), 
+                          fastq_1=c(paste0(path_to_file,file_names)),
+                                         fastq2 = c(rep('', length(sample_names))),
+                                         strandedness = c(rep('unstranded', length(sample_names))))
+write.csv(samplesheet, "../RNA_seq_analysis_TM/sample_sheet_RNA_seq_TM.csv", row.names = FALSE,quote = F)
+```
+
+
+
+### run nextflow rnaseq
+
+```{r echo=FALSE}
+# to update
+'nextflow pull nf-core/rnaseq'
+
+
+# multiple tries but so farrnothing worked
+'nextflow run nf-core/rnaseq -profile docker -r 3.7 --input RNA_seq_analysis_TM/sample_sheet_RNA_seq_TM.csv --outdir /home/ubuntu/MOUNT3/angela/RNA_seq_analysis_TM/ --genome mm10 --max_cpus 
+28'
+'nextflow run nf-core/rnaseq -profile docker -r 3.7 --input RNA_seq_analysis_TM/sample_sheet_RNA_seq_TM.csv --outdir /home/ubuntu/MOUNT3/angela/RNA_seq_analysis_TM/ --genome GRCm38 --aligner star_rsem --max_cpus 24'
+
+'nextflow run nf-core/rnaseq -profile docker -r 3.8 --input RNA_seq_analysis_TM/sample_sheet_RNA_seq_TM.csv --outdir /home/ubuntu/MOUNT3/angela/RNA_seq_analysis_TM/ --genome GRCm38 --pseudo_aligner salmon --max_cpus 24'
+
+
+'nextflow run nf-core/rnaseq -profile docker -r 3.3 --input RNA_seq_analysis_TM/sample_sheet_RNA_seq_TM.csv --outdir /home/ubuntu/MOUNT3/angela/RNA_seq_analysis_TM/ --genome GRCm38 --pseudo_aligner salmon --max_cpus 24'
+
+
+
+```
+
+
+```{r}
+### prepare the data
+
+merged.gene_tpm <- read.delim("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/salmon.merged.gene_tpm.tsv")
+
+merged.gene_tpm <- column_to_rownames(merged.gene_tpm, var= 'gene_id')
+
+### log transfomation
+log_merged.gene_tpm <- merged.gene_tpm
+
+log_merged.gene_tpm[2:length(merged.gene_tpm[1,])] <-log2(1+log_merged.gene_tpm[2:length(merged.gene_tpm[1,])])
+
+ggplot(log_merged.gene_tpm) + geom_histogram(aes(x=Ascl1_ASV_REP1), bin = 40 )
+## a lot of the genes have 0 expression
+```
+
+
+```{r}
+
+## correlation between the conditions
+cor_merged.gene_tpm <- cor(merged.gene_tpm[2:length(merged.gene_tpm[1,])], method = 'pearson')
+
+corrplot(cor_merged.gene_tpm, method = 'color', type = "upper",tl.col = "black", tl.cex =.55, is.corr = FALSE)
+
+pheatmap(cor_merged.gene_tpm, cellheight=9, cellwidth = 9, fontsize = 7)
+
+```
+
+
+```{r echo=FALSE}
+# conditions
+treatment <- c(rep("ASV",3),
+               rep("DMSO",3), 
+               rep("ASV",3), 
+               rep("DMSO",3),
+               rep("ASV",3), 
+               rep("DMSO",3))
+
+cell_type <- c(rep("Ascl1",6), rep("empty",6), 
+               rep("NeuroD1",6))
+
+cell_type_and_induction <- c(rep("Ascl1_ASV", 3), 
+                             rep("Ascl1_DMSO", 3),
+                             rep("Empty_ASV", 3),
+                             rep("Empty_DMSO", 3),
+                             rep("NeuroD1_ASV", 3),
+                             rep("NeuroD1_DMSO", 3))
+
+# make d data frame for the DESeq analysis
+Data <- as.data.frame(cbind(colnames(merged.gene_tpm[2:length(merged.gene_tpm)]), treatment, cell_type, cell_type_and_induction))
+
+DESdata <-DESeqDataSetFromMatrix(countData=round(merged.gene_tpm[2:length(merged.gene_tpm)]),
+                                 colData=Data, design=~ cell_type_and_induction)
+
+```
+
+
+```{r echo= FALSE}
+# DESeq analysis
+dd <- DESeq(DESdata)
+
+```
+
+
+```{r}
+nrow(dd)
+resultsNames(dd)
+res <- results(dd)
+head(res)
+```
+
+```{r}
+# to normalize our data 
+dd_normalized <- vst(dd)
+res_Ascl1_Empty <- results(dd, contrast=c("cell_type_and_induction","Ascl1_ASV", "Empty_ASV"))
+
+## PCA
+
+plotPCA(dd_normalized,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE) + ggtitle('cell_type_and_induction') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)
+
+
+plotPCA(dd_normalized,
+  intgroup ='cell_type',
+  returnData = FALSE)+ ggtitle('cell_type') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)
+
+
+plotPCA(dd_normalized,
+  intgroup ='treatment',
+  returnData = FALSE)+ ggtitle('treatment') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)
+
+```
+
+```{r}
+dist_matrix <- as.matrix(dist(t(assay(dd_normalized))))
+rownames(dist_matrix)<- colnames(dd_normalized)
+colnames(dist_matrix)<- colnames(dd_normalized)
+pheatmap(dist_matrix,cellheight=9, cellwidth = 9, fontsize = 7)
+```
+
+# top differentialy expressed genes acroaa samples
+```{r}
+dd_norm<- normTransform(dd)
+
+
+select <- order(rowMeans(counts(dd,normalized=TRUE)),
+                decreasing=TRUE)[1:50]
+
+rownames(dd_norm[select,])
+
+
+```
+
+
+# MA-plots
+```{r}
+
+res_Ascl1_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV", "Ascl1_DMSO"), type="norm")
+
+plotMA(res_Ascl1_ASV_over_DMSO, ylim=c(-4,6),main = 'Ascl1 ASV induced / Ascl1 DMSO non-Induced')
+
+
+```
+
+```{r}
+res_NeuroD1_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","NeuroD1_ASV", "NeuroD1_DMSO"), type="norm")
+
+plotMA(res_NeuroD1_ASV_over_DMSO, ylim=c(-4,6),main = 'NeuroD1 ASV induced / NeuroD1 DMSO non-Induced')
+
+```
+
+```{r}
+res_Empty_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_ASV", "Empty_DMSO"), type="norm")
+
+plotMA(res_Empty_ASV_over_DMSO, ylim=c(-4,6),main = 'Empty ASV induced / Empty DMSO non-Induced')
+```
+
+
+```{r}
+res_Ascl1_ASV_over_Empty_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV","Empty_ASV"), type="norm")
+
+plotMA(res_Ascl1_ASV_over_Empty_induced , ylim=c(-4,6),main = 'Ascl1 ASV induced / Empty ASV Induced')
+```
+```{r}
+res_Ascl1_ASV_over_Empty_non_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_DMSO","Empty_DMSO"), type="norm")
+
+
+
+plotMA(res_Ascl1_ASV_over_Empty_non_induced , ylim=c(-4,6),main = 'Ascl1 ASV non-induced / Empty non-Induced')
+```
+
+
+```{r}
+res_NeuroD1_ASV_over_Empty_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","NeuroD1_ASV","Empty_ASV"), type="norm")
+
+plotMA(res_NeuroD1_ASV_over_Empty_induced , ylim=c(-4,6),main = 'NeuroD1 ASV induced / Empty ASV Induced')
+```
+
+
+
+
+```{r}
+
+res_Ascl1_ASV_over_Empty_induced_df <- as.data.frame(res_Ascl1_ASV_over_Empty_induced)
+
+ggsave('Plots/res_Ascl1_ASV_over_Empty_induced.png',
+ggplot()+ geom_point(res_Ascl1_ASV_over_Empty_induced_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-VPR induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+write.csv(res_Ascl1_ASV_over_Empty_induced_df, "Datasets/res_Ascl1_ASV_over_Empty_induced_df_from_TM.csv")
+
+
+res_Ascl1_ASV_over_DMSO_df <- as.data.frame(res_Ascl1_ASV_over_DMSO)
+
+ggsave('Plots/res_Ascl1_ASV_over_Ascl1_noninduced.png',
+ggplot()+ geom_point(res_Ascl1_ASV_over_DMSO_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-VPR non-induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_NeuroD1_ASV_over_DMSO_df <- as.data.frame(res_NeuroD1_ASV_over_DMSO)
+
+ggsave('Plots/res_NeuroD1_ASV_over_DMSO_induced.png',
+ggplot()+ geom_point(res_NeuroD1_ASV_over_DMSO_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('NeuroD1-VPR Induced / NeuroD1-VPR non-induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+
+res_NeuroD1_ASV_over_Empty_induced_df <- as.data.frame(res_NeuroD1_ASV_over_Empty_induced)
+
+ggsave('Plots/res_NeuroD1_ASV_over_Empty_induced_df.png',
+ggplot()+ geom_point(res_NeuroD1_ASV_over_Empty_induced_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('NeuroD1-VPR Induced / Empty-VPR induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+```
+
+
+### extract the genes wich are overexpressed ( without normalized data)
+
+
+```{r}
+
+res_Ascl1_Empty 
+res_Ascl1_ASV_over_DMSO_ord <-res_Ascl1_ASV_over_DMSO[order(res_Ascl1_ASV_over_DMSO$log2FoldChange, decreasing = TRUE), ]
+
+
+res_Ascl1_ASV_over_DMSO_ord <- as.data.frame(res_Ascl1_ASV_over_DMSO_ord)
+expr_genes_ascl1_greater_1 <- res_Ascl1_ASV_over_DMSO_ord%>% filter(log2FoldChange > 1)
+
+
+write.table(t(expr_genes_ascl1_greater_1), file = 'genes_ascl1_ASV_over_DMSO_oe.txt', sep = " ",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(expr_genes_ascl1_greater_1, file= 'expr_genes_ascl1_greater_1.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(res_Ascl1_ASV_over_DMSO_ord, file= 'all_genes_Ascl1.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+```
+### extract the genes wich are overexpressed 
+
+```{r}
+
+
+res_Ascl1_ASV_over_Empty_ord <-res_Ascl1_Empty [order(res_Ascl1_Empty $log2FoldChange, decreasing = TRUE), ]
+
+
+res_Ascl1_ASV_over_Empty_ord<- as.data.frame(res_Ascl1_ASV_over_Empty_ord)
+expr_genes_ascl1_Empty_greater_1 <- res_Ascl1_ASV_over_Empty_ord%>% filter(pvalue <0.5)
+expr_genes_ascl1_Empty_greater_1 <- res_Ascl1_ASV_over_Empty_ord%>% filter(log2FoldChange>1)
+
+
+write.table(t(expr_genes_ascl1_greater_1), file = 'genes_ascl1_ASV_over_Empty_oe.txt', sep = " ",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(expr_genes_ascl1_Empty_greater_1, file= 'Datasets/expr_genes_ascl1_Empty_greater_1.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+write.table(res_Ascl1_ASV_over_DMSO_ord, file= 'all_genes_Ascl1.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+```
+
+```{r}
+
+res_NeuroD1_ASV_over_DMSO_ord <-res_NeuroD1_ASV_over_DMSO[order(res_NeuroD1_ASV_over_DMSO$log2FoldChange, decreasing = TRUE), ]
+
+
+res_NeuroD1_ASV_over_DMSO_ord <- as.data.frame(res_NeuroD1_ASV_over_DMSO_ord)
+expr_genes_NeuroD1_greater_1 <- res_NeuroD1_ASV_over_DMSO_ord%>% filter(log2FoldChange > 1)
+
+
+write.table(t(expr_genes_NeuroD1_greater_1), file = 'genes_NeuroD1_ASV_over_DMSO_oe.txt', sep = " ",
+            row.names = FALSE, col.names = FALSE, quote = FALSE)
+write.table(expr_genes_NeuroD1_greater_1, file= 'expr_genes_NeuroD1_greater_1.tsv', sep= ' ',quote = FALSE, col.names = TRUE)
+```
+
+### Motif enrichment of of the genes
+```{r}
+
+pwms <- getMatrixSet(JASPAR2022, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+
+expr_genes_ascl1_greater_1 <- read.csv("~/Documents/OneDrive - Universität Zürich UZH/Studium/Master Documents/Project/R_scripts/expr_genes_ascl1_greater_1.tsv", sep="")
+expr_genes_ascl1_greater_1 <- tibble::rownames_to_column(expr_genes_ascl1_greater_1, 'mgi_symbol') 
+
+head(pwms)
+```
+
+
+Load DNA sequence
+```{r}
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = expr_genes_ascl1_greater_1$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+sum(is.na(biomart_info$entrezgene_id))
+
+sapply(expr_genes_ascl1_greater_1, typeof)
+sapply(biomart_info, typeof)
+```
+merge the info with the dataset
+
+```{r}
+expr_genes_ascl1_greater_1.merged <- dplyr::inner_join(expr_genes_ascl1_greater_1, biomart_info, by = "mgi_symbol")
+sum(is.na(expr_genes_ascl1_greater_1.merged $entrezgene_id))
+
+```
+
+Finding promoter sequence of interest. 2kb upstram and 200b downstream from transcription start site to find promoter. TxDb object --> to store transcription annotation
+
+
+```{r}
+ucsc_mm10 <- TxDb.Mmusculus.UCSC.mm10.knownGene
+g <- genes(ucsc_mm10)
+head (g)
+
+p <- promoters(genes(ucsc_mm10), upstream = 2000, downstream = 200)
+head (p)
+```
+
+
+
+```{r}
+list.expr_genes_ascl1_greater_1 <-unique(expr_genes_ascl1_greater_1.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.expr_genes_ascl1_greater_1<- p[(elementMetadata(p)[,1] %in% list.expr_genes_ascl1_greater_1)]
+
+head(list.expr_genes_ascl1_greater_1)
+```
+Convert these GRs to DNAstring objects, which have the actual DNA sequence
+
+```{r}
+seq.GR.list.expr_genes_ascl1_greater_1 <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_ascl1_greater_1)
+head(seq.GR.list.expr_genes_ascl1_greater_1,20 )
+```
+
+motif enrichment
+```{r}
+se3 <- calcBinnedMotifEnrR(seq.GR.list.expr_genes_ascl1_greater_1,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.list.expr_genes_ascl1_greater_1 <- se3
+
+se3 <- se.seq.GR.list.expr_genes_ascl1_greater_1
+ncol(se3)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3 <- assay(se3, "negLog10Padj")[, 1] > 2.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3[is.na(sel3)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+plotMotifHeatmaps(x = se3[sel3,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+
+pwm
+
+```
+
+
+```{r}
+
+biomart_info_Ascl1_NeuroD1 <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = c('Ascl1', 'NeuroD1'),
+  mart = mart,
+  useCache = FALSE)
+
+pfms_A_D <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1", 
+                                    "MA1109.1"))
+
+pfms_A_D <- toPWM(pfms_A_D)
+name(pfms_A_D)
+
+se4 <- calcBinnedMotifEnrR(seq.GR.list.expr_genes_ascl1_greater_1,
+                           pwmL = pfms_A_D,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+seAD.seq.GR.list.expr_genes_ascl1_greater_1 <- se4
+
+seAD <- seAD.seq.GR.list.expr_genes_ascl1_greater_1 
+ncol(seAD)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+selAD <- assay(seAD, "negLog10Padj")[, 1]
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3[is.na(sel3)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+plotMotifHeatmaps(x = seAD, which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+```
+
+
+
+```{r}
+res <- results(dd,contrast=c(c("cell_type_and_induction","Ascl1_ASV","Empty_ASV")))
+
+res <- as.data.frame(res)
+
+res_selected <- filter(res,pvalue< 0.05 )
+
+res_selected <- filter(res_selected, log2FoldChange >1)
+
+write.table(res_selected, file= 'Datasets/res_selected_Ascl1_EMpt.tsv', sep= ' ', quote = FALSE, col.names = TRUE)
+```
+
+```{r}
+res <- as.data.frame(res)
+
+up_res <- filter(res,pvalue<0.05)
+up_res <- filter(up_res,log2FoldChange >1)
+
+down_res <- filter(res,pvalue<0.05)
+down_res <- filter(down_res,log2FoldChange <(-1))
+
+nrow(up_res)
+nrow(down_res)
+
+num<- c(nrow(up_res),nrow(down_res))
+
+Sample<- c('up_genes', 'down_genes')
+
+
+tot_conc_gene_count_up_down_reg <- data.frame('Sample'= Sample ,'Gene_count' = num)
+
+
+barplot <- ggplot(data=tot_conc_gene_count_up_down_reg, aes(x= Sample,y= Gene_count))+ geom_bar(stat= 'identity', fill="steelblue") +
+  geom_text(aes(label=Gene_count), vjust=1.6, color="white", size=3.5)+ theme_classic2() + ggtitle('diff. expressed genes in RNAseq')
+
+png("barplot.png")
+
+# Code
+
+barplot
+
+# Close device
+dev.off()
+
+```
+

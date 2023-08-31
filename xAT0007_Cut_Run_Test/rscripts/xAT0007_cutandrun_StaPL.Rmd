@@ -1,0 +1,946 @@
+---
+title: "xAT0007_cutandrun_StaPL"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Cut & Run for Ascl1 in StaPl system with VPR and anti Flag-Tag
+
+```{r}
+setwd('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/')
+
+#packages
+library("gtools")
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(circlize)
+library(GenomicAlignments)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(ChIPpeakAnno)
+library(ReactomePA)
+library(tibble)
+library(ggpubr)
+library(DiffBind)
+library(org.Mm.eg.db)
+library(diffloop)
+library(ggrepel)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(monaLisa)
+library("SimBu")
+library(reshape2)
+library(plyr)
+library(DescTools)
+
+```
+
+
+## upload data
+
+```{bash}
+while read file; do
+    curl -u 'cQMkmRWK5oGNPHW:YeHmuFBymeEi' -H 'X-Requested-With: XMLHttpRequest' \
+    'https://ncie01.op.umcutrecht.nl/public.php/webdav/'$file -o $file;
+  done < /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/raw_fasta/available_files_p_2.txt
+    
+    
+# check files
+    md5sum -c md5sums.txt
+```
+
+
+# Create samplesheet
+```{r }
+
+n <- 15 # n samples
+
+path_to_file <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/raw_fasta/'
+
+fastq_1<- mixedsort(list.files(path = path_to_file,pattern = 'R1_001.fastq.gz',full.names = T), decreasing = T)
+fastq_2 <- mixedsort(list.files(path = path_to_file,pattern = 'R2_001.fastq.gz',full.names = T), decreasing = T)
+
+
+group<- c(rep("ASV_IgG",3),
+               rep("ASV_Flag",3),
+               rep("ASV_H3K27me3",3),
+               rep("DMSO_IgG",3),
+               rep("DMSO_Flag",3))
+
+replicate <- rep(seq(1,3,1),5)
+
+
+control <- c(rep("",3),
+             rep("ASV_IgG",6),
+             rep("",3),
+             rep("DMSO_IgG",3))
+
+input_file <- as.data.frame(cbind(group,replicate,fastq_1,fastq_2,control))
+str(input_file)
+
+write.csv(input_file,'/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv', row.names = F, col.names= T,quote = F)
+
+
+```
+
+```{bash}
+nextflow run nf-core/cutandrun -r 3.0 -profile docker -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/ --max_cpus 14 --max_memory 60.GB --genome mm10 --blacklist /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed
+```
+
+# deeptools
+
+## heatmaps
+
+```{bash}
+
+# compute matrix
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_Flag.gz -p 12 --missingDataAsZero
+
+# plot heatmap
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ASV_Flag.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_ASV_Flag.pdf
+
+
+###
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_DMSO_Flag.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_DMSO_Flag.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_DMSO_Flag.pdf
+
+###
+
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_DMSO_IgG.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_DMSO_IgG.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_DMSO_IgG.pdf
+
+###
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_IgG.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_IgG.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_ASV_IgG.pdf
+
+
+###
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_H3K27me3_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_H3K27me3_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_H3K27me3_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_H3K27me3.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_H3K27me3.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_ASV_H3K27me3.pdf
+
+```
+
+
+
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_H3K27me3_R2.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap.pdf
+```
+
+
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_H3K27me3_R1.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_gene.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_gene.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_gene.pdf
+```
+
+
+
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_w_H3K27me3.gz -p 12 --missingDataAsZero
+
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_w_H3K27me3.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_w_H3K27me3.pdf
+```
+
+
+corrrelation plot and PCA
+```{bash}
+multiBigwigSummary bins -b /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R3.bigWig -bl /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed --binSize 1000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz -p 14
+
+plotCorrelation \
+-in /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz \
+--corMethod spearman \
+--skipZeros \
+--removeOutliers \
+--plotTitle "Spearman Correlation" \
+--whatToPlot heatmap \
+--colorMap RdYlBu \
+--plotNumbers \
+-o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary_long_results.pdf \
+--outFileCorMatrix /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap.multiBigwigSummary.long.results.tab
+
+plotPCA -in /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz \
+-o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/pca_multiBigwigSummary_results.pdf \
+-T "PCA"
+
+```
+doesn't seem to make that much sense.
+
+```{r}
+
+data_path <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/04_called_peaks/seacr/'
+
+
+peak_files = list.files(
+    path       = data_path, 
+    full.names = TRUE, 
+    pattern    = 'narrowPeak$'
+)
+names <- c()
+
+for (i in seq(1,length(peak_files))){
+  names <- append(names,unlist(strsplit(basename(peak_files[i]),".", fixed = T))[1])
+  
+}
+
+
+
+names(peak_files) <- names
+peak_ASV_Flag_R1 <- readPeakFile(peak_files[[1]], as= 'GRanges')
+peak_ASV_H3K27me3_R1 <- readPeakFile(peak_files[[4]], as= 'GRanges')
+peak_DMSO_Flag_R1 <- readPeakFile(peak_files[[7]], as= 'GRanges')
+
+data_path_ChIP <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/'
+
+
+peak_files_ChIP = list.files(
+    path       = data_path_ChIP, 
+    full.names = TRUE, 
+    pattern    = 'broadPeak$'
+)
+names <- c()
+
+for (i in seq(1,length(peak_files_ChIP))){
+  names <- append(names,unlist(strsplit(basename(peak_files_ChIP[i]),".", fixed = T))[1])
+  
+}
+
+
+names(peak_files_ChIP) <- names
+
+
+
+
+peak_ASV_Flag_R1#634044
+peak_ASV_H3K27me3_R1 # 168444
+peak_DMSO_Flag_R1 #79965
+
+save(peak_ASV_Flag_R1, file="data/peak_ASV_Flag_R1.RData")
+save(peak_ASV_H3K27me3_R1, file="data/peak_ASV_H3K27me3_R1.RData")
+save(peak_DMSO_Flag_R1, file="data/peak_DMSO_Flag_R1.RData")
+````
+
+```{r}
+#the peak locations over the whole genome
+
+covplot(peak_ASV_Flag_R1)
+
+````
+
+
+
+```{r}
+#get promoter regions
+promoter <- getPromoters(TxDb=txdb, upstream=2000, downstream=200)
+
+# overlay promoter with peaks
+tagMatrix_ASV_Flag_R1 <- getTagMatrix(peak_ASV_Flag_R1, windows=promoter)
+tagMatrix_ASV_H3K27me3_R1 <- getTagMatrix(peak_ASV_H3K27me3_R1, windows=promoter)
+tagMatrix_DMSO_Flag_R1 <- getTagMatrix(peak_DMSO_Flag_R1, windows=promoter)
+
+
+plotAvgProf(tagMatrix_ASV_Flag_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_ASV_H3K27me3_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+plotAvgProf(tagMatrix_DMSO_Flag_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+
+`````
+```{r}
+#get promoter regions
+promoter <- getPromoters(TxDb=txdb, upstream=2000, downstream=200)
+
+# overlay promoter with peaks
+tagMatrix_Ascl1 <- getTagMatrix(peak_Ascl1, windows=promoter)
+tagMatrix_NeuroD1 <- getTagMatrix(peak_NeuroD1, windows=promoter)
+tagMatrix_Pax6 <- getTagMatrix(peak_Pax6, windows=promoter)
+tagMatrix_Pax4 <- getTagMatrix(peak_Pax4, windows=promoter)
+
+plotAvgProf(tagMatrix_Ascl1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_NeuroD1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+plotAvgProf(tagMatrix_Pax4, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_Pax6, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+
+```
+
+
+
+```{r}
+
+# annotate peaks
+
+peakAnno_ASV_Flag_R1 <- annotatePeak(peak_files[[1]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+peakAnno_ASV_H3K27me3_R1 <- annotatePeak(peak_files[[4]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+vpeakAnno_DMSO_Flag_R1 <- annotatePeak(peak_files[[7]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+
+
+plotAnnoPie(peakAnno_ASV_Flag_R1)
+plotAnnoPie(peakAnno_ASV_H3K27me3_R1)
+plotAnnoPie(peakAnno_DMSO_Flag_R1)
+
+
+
+```
+
+```{r}
+# to compare for all of them
+
+tagMatrixList <- lapply(peak_files, getTagMatrix, windows=promoter)
+
+plotAvgProf(tagMatrixList, xlim=c(-2000, 200), conf=0.95,resample=500, facet="row")
+`````
+
+
+## motifs enriched in data
+
+
+``` {r}
+
+data_path <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/ASV_Flag.consensus.peaks.awk.bed'
+
+
+ASV_Flag_peaks <- read.table(data_path, header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+
+data_path_H <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/ASV_H3K27me3.consensus.peaks.awk.bed'
+
+
+ASV_H3K27me3_peaks <- read.table(data_path_H,header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+data_path_D <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/DMSO_Flag.consensus.peaks.awk.bed'
+
+
+DMSO_Flag_peaks <- read.table(data_path_D, header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+
+
+ASV_Flag_peak_cons2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/ASV_Flag.consensus_1.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_1.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+DMSO_Flag_peak_cons3 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_3.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons2_ord<- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_2_sort.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons3_ord<- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_3_sort.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+```
+
+```{r}
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+```
+convert the peaks 
+```{r}
+# create a GRanges object
+GR_ASV_Flag_peaks <- GRanges(seqnames = as.character(ASV_Flag_peaks$chrom),
+                        ranges = IRanges(start = ASV_Flag_peaks$start, end = ASV_Flag_peaks$end))
+
+GR_ASV_Flag_peaks
+#load the mm10 genome to get the dna sequences
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_ASV_Flag_peaks <- getSeq(mm10, GR_ASV_Flag_peaks)
+
+
+
+# create a GRanges object
+GR_DMSO_Flag_peaks <- GRanges(seqnames = as.character(DMSO_Flag_peaks$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peaks$start, end = DMSO_Flag_peaks$end))
+
+
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_DMSO_Flag_peaks <- getSeq(mm10, GR_DMSO_Flag_peaks)
+
+
+
+GR_ASV_Flag_peak_cons2 <- GRanges(seqnames = as.character(ASV_Flag_peak_cons2$chrom),
+                        ranges = IRanges(start = ASV_Flag_peak_cons2$start, end = ASV_Flag_peak_cons2$end))
+
+
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_ASV_Flag_peak_cons2 <- getSeq(mm10, GR_ASV_Flag_peak_cons2)
+
+
+
+GR_DMSO_Flag_peak_cons2<- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2$start, end = DMSO_Flag_peak_cons2$end))
+
+
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_DMSO_Flag_peak_cons2 <- getSeq(mm10, GR_DMSO_Flag_peak_cons2)
+
+
+GR_DMSO_Flag_peak_cons3 <- GRanges(seqnames = as.character(DMSO_Flag_peak_cons3$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons3$start, end = DMSO_Flag_peak_cons3$end))
+
+
+ChIP_Ascl1
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_DMSO_Flag_peak_cons3 <- getSeq(mm10, GR_DMSO_Flag_peak_cons3)
+
+
+GR_DMSO_Flag_peak_cons2_ord <- GRanges(seqnames = as.character(DMSO_Flag_peak_cons2_ord$chrom),
+                        ranges = IRanges(start = DMSO_Flag_peak_cons2_ord$start, end = DMSO_Flag_peak_cons2_ord$end))
+
+
+
+GR_DMSO_Flag_peak_cons2_ord_top10 <- GR_DMSO_Flag_peak_cons2_ord[1:as.integer(0.1*length(GR_DMSO_Flag_peak_cons2_ord))]
+
+
+GR_DMSO_Flag_peak_cons2_ord_top1 <- GR_DMSO_Flag_peak_cons2_ord[1:as.integer(0.01*length(GR_DMSO_Flag_peak_cons2_ord))]
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_DMSO_Flag_peak_cons2_top10 <- getSeq(mm10, GR_DMSO_Flag_peak_cons2_ord_top10)
+
+seqs_DMSO_Flag_peak_cons2_top1 <- getSeq(mm10, GR_DMSO_Flag_peak_cons2_ord_top1)
+ChIP_Ascl1<- dplyr::select(ChIP_Ascl1, c("chrom", "start", "end"))
+GR_ChIP_Ascl1 <- GRanges(seqnames = as.character(ChIP_Ascl1$chrom),
+                        ranges = IRanges(start = abs(int(ChIP_Ascl1$start)), end = abs(int(ChIP_Ascl1$end)))
+
+export(GR_DMSO_Flag_peak_cons2_ord_top10, "data/DMSO_Flag.consensus2_top10.bed", "bed")
+
+export(GR_DMSO_Flag_peak_cons2_ord_top1, "data/DMSO_Flag.consensus2_top1.bed", "bed")
+
+export(GR_peak_Ascl1_sort_ChIP, "data/GR_peak_Ascl1_sort_ChIP.bed", "bed")
+export(GR_ChIP_Ascl1, "data/GR_ChIP_Ascl1.bed", "bed")
+GR_peak_Ascl1_sort_ChIP
+```
+will first see what motif are enriched within each peak set
+```{r}
+
+motif.enrichment.ASV_Flag_peaks <- calcBinnedMotifEnrR(seqs = seqs_ASV_Flag_peaks,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.motif.enrichment.ASV_Flag_peaks <- motif.enrichment.ASV_Flag_peaks
+
+
+
+ncol(motif.enrichment.ASV_Flag_peaks)
+
+# convert to data frame
+df_se.seq.GR.motif.enrichment.ASV_Flag_peaks <- rowData(se.seq.GR.motif.enrichment.ASV_Flag_peaks)
+
+
+save(df_se.seq.GR.motif.enrichment.ASV_Flag_peaks, file="data/Motif_enrichment_ASV_Flag.RData")
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.ASV_Flag_peaks <- assay(motif.enrichment.ASV_Flag_peaks, "negLog10Padj")[, 1] > 1.0
+sel.motif.enrichment.ASV_Flag_peaks[is.na(sel.motif.enrichment.ASV_Flag_peaks)] <- FALSE
+df_se.seq.GR.motif.enrichment.ASV_Flag_peaks_log_2enr <- assay(motif.enrichment.ASV_Flag_peaks[sel.motif.enrichment.ASV_Flag_peaks,], "log2enr")
+save(df_se.seq.GR.motif.enrichment.ASV_Flag_peaks_log_2enr, file="data/Motif_enrichment_ASV_Flag_log_2enr.RData")
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel.motif.enrichment.ASV_Flag_peaks[is.na(sel.motif.enrichment.ASV_Flag_peaks)] <- FALSE
+SimMatSel <- motifSimilarity(rowData(motif.enrichment.ASV_Flag_peaks[sel.motif.enrichment.ASV_Flag_peaks,])$motif.pfm)
+hcl <- hclust(as.dist(1 - SimMatSel), method = "average")
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('plots/plotMotifHeatmaps_ASV_Flag.png',  
+    width = 680, height = 1080,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+
+plotMotifHeatmaps(x = motif.enrichment.ASV_Flag_peaks[sel.motif.enrichment.ASV_Flag_peaks,], which.plots = c("log2enr"),cluster = hcl, maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+
+
+
+
+motif.enrichment.DMSO_Flag_peaks <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peaks,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.motif.enrichment.DMSO_Flag_peaks <- motif.enrichment.DMSO_Flag_peaks
+
+df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks <- rowData(se.seq.GR.motif.enrichment.DMSO_Flag_peaks)
+
+save(df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks, file="data/Motif_enrichment_DMSO_Flag.RData")
+
+
+ncol(motif.enrichment.DMSO_Flag_peaks)
+
+sel.motif.enrichment.DMSO_Flag_peaks <- assay(motif.enrichment.DMSO_Flag_peaks, "negLog10Padj")[, 1] > 1.0
+sel.motif.enrichment.DMSO_Flag_peaks[is.na(sel.motif.enrichment.DMSO_Flag_peaks)] <- FALSE
+df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks_log_2enr <- assay(motif.enrichment.DMSO_Flag_peaks[sel.motif.enrichment.DMSO_Flag_peaks,], "log2enr")
+save(df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks_log_2enr, file="data/Motif_enrichment_DMSO_Flag_log_2enr.RData")
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel.motif.enrichment.DMSO_Flag_peaks[is.na(sel.motif.enrichment.DMSO_Flag_peaks)] <- FALSE
+
+png('plots/plotMotifHeatmaps_DMSO_Flag.png',  
+    width = 880, height = 880,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+plotMotifHeatmaps(x = motif.enrichment.DMSO_Flag_peaks[sel.motif.enrichment.DMSO_Flag_peaks,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 70,
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+
+dev.off()
+```
+
+
+
+combine the two data sets
+
+
+``` {r}
+df_se.seq.GR.motif.enrichment.ASV_Flag_peaks <- as.data.frame(df_se.seq.GR.motif.enrichment.ASV_Flag_peaks)
+df_ASV_Flag <- merge(df_se.seq.GR.motif.enrichment.ASV_Flag_peaks,df_se.seq.GR.motif.enrichment.ASV_Flag_peaks_log_2enr, by= 0)
+
+cnames <- c("Motif_ID", "Motif_name","Motif_Pfm", "Motif_pwm","Motif_GC", "log2enr")
+df_ASV_Flag<- df_ASV_Flag[,2:7]
+colnames(df_ASV_Flag) <- cnames
+df_ASV_Flag<- dplyr::select(df_ASV_Flag,-c(Motif_Pfm,Motif_pwm,Motif_GC))
+write_csv(df_ASV_Flag, 'data/df_ASV_Flag.csv')
+
+df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks <- as.data.frame(df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks)
+df_DMSO_Flag <- merge(df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks,df_se.seq.GR.motif.enrichment.DMSO_Flag_peaks_log_2enr, by= 0)
+
+
+df_DMSO_Flag<- df_DMSO_Flag[,2:7]
+colnames(df_DMSO_Flag) <- cnames
+df_DMSO_Flag<- dplyr::select(df_DMSO_Flag,-c(Motif_Pfm,Motif_pwm,Motif_GC))
+write_csv(df_DMSO_Flag, 'data/df_DMSO_Flag.csv')
+
+
+
+df_ASV_Flag <- read_csv("data/df_ASV_Flag.csv")
+df_DMSO_Flag <- read_csv("data/df_DMSO_Flag.csv")
+
+df_ASV_Flag <- dplyr::select(df_ASV_Flag,-c(Motif_ID))
+df_DMSO_Flag <- dplyr::select(df_DMSO_Flag,-c(Motif_ID))
+
+df_Flag_tot <- merge(df_ASV_Flag,df_DMSO_Flag, by="Motif_name", all=T)
+colnames(df_Flag_tot) <- c("Motif", "ASV_log_2enr", "DMSO_log_2enr")
+
+df_Flag_tot[is.na(df_Flag_tot)] <- 0
+
+
+
+filter(df_Flag_tot,  Motif=='ASCL1')
+tot_df_heatmap_ord <- df_Flag_tot[order(df_Flag_tot$ASV_log_2enr),]
+
+tot_df_heatmap_ord <- data.frame(tot_df_heatmap_ord, row.names = NULL)
+tot_df_heatmap_ord <- column_to_rownames(tot_df_heatmap_ord, "Motif")
+
+tot_df_heatmap_ord[]<- lapply(tot_df_heatmap_ord, as.numeric)
+
+tot_df_heatmap_ord_melt <-  melt(as.matrix(tot_df_heatmap_ord , id='Motif'))
+name_columns <- c('Motif','condition','log2enr')
+colnames(tot_df_heatmap_ord_melt) <- name_columns 
+
+
+
+tot_df_heatmap_ord_melt$Value<- as.numeric(tot_df_heatmap_ord_melt$log2enr)
+
+
+gg_heatmap <- ggplot(tot_df_heatmap_ord_melt, aes(condition,Motif)) +
+  geom_tile(aes(fill = log2enr), colour = "white") +
+  scale_fill_gradient(low = "white", high = "red") + xlab("")+ ylab("")+
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
+                      axis.ticks.y=element_blank(),plot.title = element_text (hjust = 0.5, vjust = 1.5)) +ggtitle("Motif enrichment")
+
+png('plots/heatmap_motif_enrichment.png',  
+    width = 580, height = 580,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+gg_heatmap
+
+dev.off()
+
+```
+
+Get pwm of Ascl1 motif form JasparDB. motif from mouse
+``` {r}
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+opts <- list()
+opts[["class"]] <-  "Basic helix-loop-helix factors (bHLH)"
+opts[["tax_species"]] <- "Mus musculus"
+pfms.bHLH <-  getMatrixSet(JASPAR2020,opts)
+pwms.bHLH  <- toPWM(pfms.bHLH )
+
+```
+
+
+
+
+```{r}
+#check enrichment of select motifs in cbp unique peaks
+
+
+se3.ASV_Flag.pwms_bHLH <- calcBinnedMotifEnrR(seqs = seqs_ASV_Flag_peaks,
+                           pwmL = pwms.bHLH,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.ASV_Flag.pwms_bHLH <-se3.ASV_Flag.pwms_bHLH
+ncol(se3.ASV_Flag.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.ASV_Flag.pwms_bHLH <- assay(sel3.ASV_Flag.pwms_bHLH, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.ASV_Flag.pwms_bHLH[is.na(sel3.ASV_Flag.pwms_bHLH)] <- FALSE
+
+png('plots/Ascl1MotifHeatmaps_ASV_Flag.png',  
+    width = 580, height = 580,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+plotMotifHeatmaps(x = se3.ASV_Flag.pwms_bHLH[sel3.ASV_Flag.pwms_bHLH,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+
+#check enrichment of select motifs in cbp unique peaks
+se3.DMSO_Flag.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peaks,
+                           pwmL = pwms.Ascl1,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+dev.off()
+sel3.DMSO_Flag.pwms <-se3.DMSO_Flag.pwms
+ncol(se3.DMSO_Flag.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.ASV_DMSO.pwms <- assay(se3.DMSO_Flag.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+se3l.DMSO_Flag.pwms[is.na(se3l.DMSO_Flag.pwms)] <- FALSE
+
+png('plots/Ascl1MotifHeatmaps_DMSO_Flag.png',  
+    width = 580, height = 580,
+    units = "px", pointsize = 12, bg = "white", res = NA)
+plotMotifHeatmaps(x = se3.ASV_Flag.pwms[sel3.ASV_Flag.pwms,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+plotMotifHeatmaps(x = se3.DMSO_Flag.pwms[sel3.ASV_Flag.pwms,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+dev.off()
+```
+```{r}
+ASV_Flag_cutnrun <- toGRanges(peak_files[[1]], format="narrowPeak", header=FALSE) 
+
+DMSO_Flag_cutnrun<- toGRanges(peak_files[[7]], format="narrowPeak", header=FALSE) 
+ASCL1_ChIP <- toGRanges(peak_files_ChIP[[1]], format="broadPeak", header=FALSE) 
+
+ol <- findOverlapsOfPeaks(ASV_Flag_cutnrun,DMSO_Flag_cutnrun,ASCL1_ChIP)
+
+png("plots/Venndiagram.png", height = 500, width = 500)
+makeVennDiagram(ol,
+                fill=c("#36648B", "#98F5FF", "#53868B"), # circle fill color
+                col=c("#2F4F4F", "#2F4F4F","#2F4F4F"), #circle border color
+                cat.col=c("#2F4F4F", "#2F4F4F","#2F4F4F"), main= 'Overlapping Peaks', cex=1.5)+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 20),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+dev.off()
+dev.print(van, "vandiagram_DBD.pdf")
+ol$venn_cnt
+
+
+````
+
+
+```{r}
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+
+pwms  <- toPWM(pfms.Ascl1 )
+
+se3.ASV_Flag.pwms <- calcBinnedMotifEnrR(seqs = seqs_ASV_Flag_peaks,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.ASV_Flag.pwms <-se3.ASV_Flag.pwms
+ncol(se3.ASV_Flag.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.ASV_Flag.pwms <- assay(sel3.ASV_Flag.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.ASV_Flag.pwms[is.na(sel3.ASV_Flag.pwms)] <- FALSE
+
+
+se3.DMSO_Flag.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peaks,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.DMSO_Flag.pwms <-se3.DMSO_Flag.pwms
+ncol(se3.DMSO_Flag.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.DMSO_Flag.pwms <- assay(sel3.DMSO_Flag.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.DMSO_Flag.pwms[is.na(sel3.DMSO_Flag.pwms)] <- FALSE
+
+
+
+
+se3.ASV_Flag_peak_cons2.pwms <- calcBinnedMotifEnrR(seqs = seqs_ASV_Flag_peak_cons2,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.ASV_Flag_peak_cons2.pwms <-se3.ASV_Flag_peak_cons2.pwms 
+ncol(se3.ASV_Flag_peak_cons2.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.ASV_Flag_peak_cons2.pwms <- assay(sel3.ASV_Flag_peak_cons2.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.ASV_Flag_peak_cons2.pwms[is.na(sel3.ASV_Flag_peak_cons2.pwms)] <- FALSE
+
+
+se3.DMSO_Flag_peak_cons2.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peak_cons2,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.DMSO_Flag_peak_cons2.pwms <-se3.DMSO_Flag_peak_cons2.pwms
+ncol(se3.DMSO_Flag_peak_cons2.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.DMSO_Flag_peak_cons2.pwms <- assay(sel3.DMSO_Flag_peak_cons2.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.DMSO_Flag_peak_cons2.pwms[is.na(sel3.DMSO_Flag_peak_cons2.pwms)] <- FALSE
+
+se3.DMSO_Flag_peak_cons3.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peak_cons3,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.DMSO_Flag_peak_cons3.pwms <-se3.DMSO_Flag_peak_cons3.pwms
+ncol(se3.DMSO_Flag_peak_cons3.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.DMSO_Flag_peak_cons3.pwms <- assay(sel3.DMSO_Flag_peak_cons3.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.DMSO_Flag_peak_cons3.pwms[is.na(sel3.DMSO_Flag_peak_cons3.pwms)] <- FALSE
+
+se3.DMSO_Flag_peak_cons2_top10.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peak_cons2_top10,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.DMSO_Flag_peak_cons2_top10.pwms <-se3.DMSO_Flag_peak_cons2_top10.pwms
+ncol(se3.DMSO_Flag_peak_cons2_top10.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.DMSO_Flag_peak_cons2_top10.pwms <- assay(sel3.DMSO_Flag_peak_cons2_top10.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.DMSO_Flag_peak_cons2_top10.pwms[is.na(sel3.DMSO_Flag_peak_cons2_top10.pwms)] <- FALSE
+
+se3.DMSO_Flag_peak_cons2_top1.pwms <- calcBinnedMotifEnrR(seqs = seqs_DMSO_Flag_peak_cons2_top1,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+sel3.DMSO_Flag_peak_cons2_top1.pwms <-se3.DMSO_Flag_peak_cons2_top1.pwms
+ncol(se3.DMSO_Flag_peak_cons2_top1.pwms)
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.DMSO_Flag_peak_cons2_top1.pwms <- assay(sel3.DMSO_Flag_peak_cons2_top1.pwms, "negLog10Padj")[, 1] > 0.0000000001
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.DMSO_Flag_peak_cons2_top1.pwms[is.na(sel3.DMSO_Flag_peak_cons2_top1.pwms)] <- FALSE
+
+
+
+
+
+svg('plots/heatmap_Ascl1_motif_ASV')
+plotMotifHeatmaps(x = se3.ASV_Flag.pwms[sel3.ASV_Flag.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+plotMotifHeatmaps(x = se3.DMSO_Flag.pwms[sel3.DMSO_Flag.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+plotMotifHeatmaps(x = se3.ASV_Flag_peak_cons2.pwms[sel3.ASV_Flag_peak_cons2.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+plotMotifHeatmaps(x = se3.DMSO_Flag_peak_cons2.pwms[sel3.DMSO_Flag_peak_cons2.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+plotMotifHeatmaps(x = se3.DMSO_Flag_peak_cons3.pwms[sel3.DMSO_Flag_peak_cons3.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+
+plotMotifHeatmaps(x = se3.DMSO_Flag_peak_cons2_top10.pwms[sel3.DMSO_Flag_peak_cons2_top10.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+plotMotifHeatmaps(x = se3.DMSO_Flag_peak_cons2_top1.pwms[sel3.DMSO_Flag_peak_cons2_top1.pwms,], which.plots = c("log2enr"), 
+                  width = 1.8, maxEnr = 2, maxSig = 5, 
+                  show_seqlogo = TRUE, cluster = TRUE)
+
+
+dev.off()
+
+coln<-c("All_DMSO","2/3_DMSO","3/3_DMSO","top10_DMSO","top1_DMSO","All_ASV","2/3_ASV")
+
+
+
+d1 <- as.data.frame(assay(se3.DMSO_Flag.pwms[sel3.DMSO_Flag.pwms,],"log2enr"))
+d2 <- as.data.frame(assay(se3.DMSO_Flag_peak_cons2.pwms[sel3.DMSO_Flag_peak_cons2.pwms,],"log2enr"))
+d3 <- as.data.frame(assay(se3.DMSO_Flag_peak_cons3.pwms[sel3.DMSO_Flag_peak_cons3.pwms,],"log2enr"))
+d4 <- as.data.frame(assay(se3.DMSO_Flag_peak_cons2_top10.pwms[sel3.DMSO_Flag_peak_cons2_top10.pwms,],"log2enr"))
+d5 <- as.data.frame(assay(se3.DMSO_Flag_peak_cons2_top1.pwms[sel3.DMSO_Flag_peak_cons2_top1.pwms,],"log2enr"))
+d6 <- as.data.frame(assay(se3.ASV_Flag.pwms[sel3.ASV_Flag.pwms,],"log2enr"))
+d7 <- as.data.frame(assay(se3.ASV_Flag_peak_cons2.pwms[sel3.ASV_Flag_peak_cons2.pwms,],"log2enr"))
+
+d1$rn <- rownames(d1)
+d2$rn <- rownames(d2)
+d3$rn <- rownames(d3)
+d4$rn <- rownames(d4)
+d5$rn <- rownames(d5)
+d6$rn <- rownames(d6)
+d7$rn <- rownames(d7)
+
+
+df <- plyr::join_all(list(d1,d2,d3,d4, d5, d6, d7), by = 'rn')
+df <- column_to_rownames(df,  "rn")
+colnames(df) <- coln
+df <- rownames_to_column(df,  "Motif")
+
+
+df_melt <-  melt(as.matrix(df , id='Motif'))[4:nrow(df_melt),]
+name_columns <- c('Motif','condition','log2enr')
+colnames(df_melt) <- name_columns 
+
+
+
+df_melt$log2enr<- as.numeric(df_melt$log2enr)
+df_melt$Motif <- as.character(df_melt$Motif)
+str(df_melt)
+
+gg_heatmap <- ggplot(df_melt[4:nrow(df_melt),], aes(condition,Motif)) +
+  geom_tile(aes(fill = log2enr), colour = "white") +
+  scale_fill_gradient(low = "grey85", high = "steelblue") + xlab("")+ ylab("")+
+  theme(axis.title.y=element_blank(), axis.text.y=element_blank(),
+                      axis.ticks.y=element_blank(),plot.title = element_text (hjust = 0.5, vjust = 1.5)) +ggtitle("Ascl1 Motif enrichment") + theme_minimal()
+
+svg('plots/Heatmap_Ascl1.svg')
+gg_heatmap 
+dev.off()
+
+`````
+
+
+
+
+
+

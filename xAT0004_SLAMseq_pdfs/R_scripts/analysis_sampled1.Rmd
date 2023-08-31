@@ -1,0 +1,439 @@
+---
+title: "Analysis_sampled1"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+setwd('/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/R_scripts')
+
+#packages
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(corrplot)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(tibble)
+library(plyr)
+library(ggpubr)
+library(ggrepel)
+library(reshape2)
+library(grid)
+
+```
+
+I sampled 30'000'000 reads per sample from the Empty data sets
+
+```{r}
+path_to_count_files <- '/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/nextflow_result_sampled1/slamdunk/count/utrs/'
+
+files <- list.files(path = path_to_count_files, full.names = T)
+list_data <- lapply(files, read.table, header= T)
+
+name <- c()
+
+for (i in 1:length(list_data)){
+  name <- cbind(name,strsplit(basename(files[i]),'_')[[1]][1])
+  
+}
+
+names(list_data) <- paste('df',name, sep = '_')
+
+
+list_data <- lapply(list_data,dplyr::select, c('Name','TcReadCount'))
+
+list2env(list_data, .GlobalEnv)
+
+
+
+tail(ifelse(list_data[[1]]$Name==list_data[[7]]$Name,"Yes","No"))## same genes
+
+list_data_counts <- lapply(list_data,dplyr::select, c('TcReadCount'))
+
+merge_df <- list_data[[1]]
+merge_df <- cbind(merge_df,list_data_counts[2:17])
+
+colnames(merge_df) <- c('Genes',names(list_data))
+
+## get ride of the nr 1 and 7 with low read counts
+merge_df_2 <- as.data.frame(cbind(merge_df[1],merge_df[11:15],merge_df[17:18], merge_df[3:9],merge_df[10]))
+
+#saving the t->c converted readcount file
+write_tsv(merge_df_2 , "/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/xAT0004_tcReadCount_sampled1.tsv")
+
+```
+
+# convert the utr count into gene_id counts, by summing up the counts for the same genes
+
+```{r }
+str(merge_df_2)
+
+names_samples <- c('Gene_id','Ascl1_2h_2','Ascl1_2h_3',
+           'Ascl1_4h_1','Ascl1_4h_2','Ascl1_4h_3','Ascl1_6h_2','Ascl1_6h_3',
+           'Empty_2h_1','Empty_2h_2','Empty_2h_3',
+           'Empty_4h_1','Empty_4h_2','Empty_4h_3',
+           'Empty_6h_2','Empty_6h_3')
+colnames(merge_df_2) <- names_samples
+
+
+
+tcReadCount_unique_geneID.merged <- merge_df_2  %>% group_by(Gene_id) %>% summarise_each(sum)
+
+write_tsv(tcReadCount_unique_geneID.merged , "/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/xAT0004_tcReadCount_unique_geneID.merged_sampled1.tsv")
+
+
+
+tcReadCount_unique_geneID.merged[] <- lapply(tcReadCount_unique_geneID.merged, as.numeric)
+d <- colSums(tcReadCount_unique_geneID.merged)
+d <- melt(d)
+d <- rownames_to_column(d, "Sample")
+
+blot_plot_Sampled1 <- ggplot(data=d[2:16,], aes(x= Sample,y= value))+  geom_bar(stat= 'identity', fill="steelblue") + theme_classic2()+ggtitle('T>C read counts')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + xlab('Sample') +ylab('read counts')
+
+
+ 
+```
+
+
+```{r }
+
+tcReadCount_unique_geneID.merged_df<-read_table("/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/xAT0004_tcReadCount_unique_geneID.merged_sampled1.tsv")
+
+ggplot(tcReadCount_unique_geneID.merged_df)+ geom_histogram(mapping= aes(x=Ascl1_2h_2))
+cor_merged.gene_tcReadCount <- cor(tcReadCount_unique_geneID.merged_df[2:length(tcReadCount_unique_geneID.merged_df[1,])], method = 'pearson')
+
+corrplot(cor_merged.gene_tcReadCount, method = 'color', type = "upper",tl.col = "black", tl.cex =.55, is.corr = FALSE)
+
+pheatmap(cor_merged.gene_tcReadCount, cellheight=9, cellwidth = 9, fontsize = 7)
+
+treatment <- c(rep("2h",2),
+               rep("4h",3), 
+               rep("6h",2), 
+               rep("2h",3),
+               rep("4h",3), 
+               rep("6h",2))
+
+cell_type <- c(rep("Ascl1",7), rep("empty",8))
+
+cell_type_and_induction <- c(rep("Ascl1_2h", 2), 
+                             rep("Ascl1_4h", 3),
+                             rep("Ascl1_6h", 2),
+                             rep("Empty_2h", 3), 
+                             rep("Empty_4h", 3),
+                             rep("Empty_6h", 2))
+
+# make d data frame for the DESeq analysis
+Data <- as.data.frame(cbind(colnames(
+tcReadCount_unique_geneID.merged_df[2:length(
+tcReadCount_unique_geneID.merged_df)]), treatment, cell_type, cell_type_and_induction))
+
+
+
+```
+
+With the original data set eventhough the read counts are low:
+```{r }
+
+
+tcReadCount_unique_geneID.merged_df<- column_to_rownames(tcReadCount_unique_geneID.merged_df, var="Gene_id")
+DESdata <-DESeqDataSetFromMatrix(countData=
+tcReadCount_unique_geneID.merged_df,
+                                 colData=Data, design=~ cell_type_and_induction)
+
+dd <- DESeq(DESdata)# normalization is already done here
+
+dd_norm <- varianceStabilizingTransformation(dd)
+nrow(dd)
+resultsNames(dd)
+res <- results(dd)
+head(res)
+
+
+
+PCA_plot <- plotPCA(dd_norm ,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE)+ ggtitle('cell_type_and_induction') 
+
+
+res_Ascl1_2h_over_Empty_2h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_2h", "Empty_2h"), type="norm")
+
+DESeq2::plotMA(res_Ascl1_2h_over_Empty_2h, ylim=c(-6,6),main = 'Ascl1 2h induced / Empty 2h induced')
+
+res_Ascl1_4h_over_Empty_4h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_4h", "Empty_4h"), type="norm")
+
+DESeq2::plotMA(res_Ascl1_4h_over_Empty_4h , ylim=c(-6,6),main = 'Ascl1 4h induced / Empty 4h induced')
+
+res_Ascl1_6h_over_Empty_6h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_6h", "Empty_6h"), type="norm")
+
+DESeq2::plotMA(res_Ascl1_6h_over_Empty_6h, ylim=c(-6,6),main = 'Ascl1 6h induced / Empty 6h induced')
+
+
+
+```
+
+```{r }
+
+
+# selecting first for significant points and then the overexpressed
+Ascl1_dd <- read.table('/home/ubuntu/MOUNT3/angela/xAT0004_SLAMseq/Ascl1_ASV_over_Empty_motif_presence.tsv')
+
+genes_Ascl1_Symbols <- read.csv("/home/ubuntu/MOUNT3/angela/ChiP_seq_analysis_TM/genes_Ascl1_Symbols.csv", sep="")
+
+Ascl1_motif_present <- Ascl1_dd[Ascl1_dd$Ascl1_motif==1,]
+
+Ascl1_motif_present <- Ascl1_motif_present[rownames(Ascl1_motif_present)%in%genes_Ascl1_Symbols$genes_Ascl1_Symbols,]
+genes_overexpressed <-Ascl1_motif_present[Ascl1_motif_present$pvalue<0.05,]
+
+
+genes_overexpressed <- rownames(genes_overexpressed[genes_overexpressed$log2FoldChange>1,])
+
+```
+
+```{r}
+
+df_res_Ascl1_2h_over_Empty_2h <- res_Ascl1_2h_over_Empty_2h
+selection <- genes_overexpressed
+
+df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp <- NA
+df_res_Ascl1_2h_over_Empty_2h <- as.data.frame(df_res_Ascl1_2h_over_Empty_2h)
+for (i in 1:nrow(df_res_Ascl1_2h_over_Empty_2h)){
+  if (is.element(rownames(df_res_Ascl1_2h_over_Empty_2h[i,]) , selection)){
+  df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp[i] <- 1
+  }
+  else {
+    df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp[i] <- 0
+  }
+}
+
+
+
+df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp<- as.numeric(df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp)
+
+df_res_Ascl1_2h_over_Empty_2h <- df_res_Ascl1_2h_over_Empty_2h[order(df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp, decreasing = F),]
+
+df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp<- as.factor(df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp)
+
+ 
+df_res_Ascl1_2h_over_Empty_2h_plot_without_l<- ggplot()+ geom_point(df_res_Ascl1_2h_over_Empty_2h,mapping= aes(x = log2(baseMean), y= log2FoldChange, color = Ascl1_motif_sign_over_exp), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Empty ASV Induced 2h')+ theme_classic2()+ 
+  ylab('Log2 Fold Change')+
+  xlab('Log2 Mean Expression')  + ylim(-5,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1_motif_sign_over_exp'), labels = c('Ascl1 motif','none'),values=c("lightgrey", "red"))+
+  theme(legend.position = "none")
+  
+df_res_Ascl1_2h_over_Empty_2h_top_genes <- df_res_Ascl1_2h_over_Empty_2h[df_res_Ascl1_2h_over_Empty_2h$Ascl1_motif_sign_over_exp==1,]
+
+df_res_Ascl1_2h_over_Empty_2h_top_genes <- filter(df_res_Ascl1_2h_over_Empty_2h_top_genes,pvalue<0.1)
+
+df_res_Ascl1_2h_over_Empty_2h_top_genes <- filter(df_res_Ascl1_2h_over_Empty_2h_top_genes,log2FoldChange >1)
+
+
+
+
+````
+
+```{r}
+
+df_res_Ascl1_4h_over_Empty_4h <- res_Ascl1_4h_over_Empty_4h
+selection <- genes_overexpressed
+
+df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp <- NA
+df_res_Ascl1_4h_over_Empty_4h <- as.data.frame(df_res_Ascl1_4h_over_Empty_4h)
+for (i in 1:nrow(df_res_Ascl1_4h_over_Empty_4h)){
+  if (is.element(rownames(df_res_Ascl1_4h_over_Empty_4h[i,]) , selection)){
+  df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp[i] <- 1
+  }
+  else {
+    df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp[i] <- 0
+  }
+}
+
+
+
+df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp<- as.numeric(df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp)
+
+df_res_Ascl1_4h_over_Empty_4h <- df_res_Ascl1_4h_over_Empty_4h[order(df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp, decreasing = F),]
+
+df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp<- as.factor(df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp)
+
+ 
+df_res_Ascl1_4h_over_Empty_4h_plot_without_l<- ggplot()+ geom_point(df_res_Ascl1_4h_over_Empty_4h,mapping= aes(x = log2(baseMean), y= log2FoldChange, color = Ascl1_motif_sign_over_exp), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Empty ASV Induced 2h')+ theme_classic2()+ 
+  ylab('Log2 Fold Change')+
+  xlab('Log2 Mean Expression')  + ylim(-5,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1_motif_sign_over_exp'), labels = c('Ascl1 motif','none'),values=c("lightgrey", "red"))+
+  theme(legend.position = "none")
+  
+df_res_Ascl1_4h_over_Empty_4h_top_genes <- df_res_Ascl1_4h_over_Empty_4h[df_res_Ascl1_4h_over_Empty_4h$Ascl1_motif_sign_over_exp==1,]
+
+df_res_Ascl1_4h_over_Empty_4h_top_genes <- filter(df_res_Ascl1_4h_over_Empty_4h_top_genes,pvalue<0.1)
+
+df_res_Ascl1_4h_over_Empty_4h_top_genes <- filter(df_res_Ascl1_4h_over_Empty_4h_top_genes,log2FoldChange >1)
+
+
+
+
+````
+
+
+```{r}
+
+df_res_Ascl1_6h_over_Empty_6h <- res_Ascl1_6h_over_Empty_6h
+selection <- genes_overexpressed
+
+df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp <- NA
+df_res_Ascl1_6h_over_Empty_6h <- as.data.frame(df_res_Ascl1_6h_over_Empty_6h)
+for (i in 1:nrow(df_res_Ascl1_6h_over_Empty_6h)){
+  if (is.element(rownames(df_res_Ascl1_6h_over_Empty_6h[i,]) , selection)){
+  df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp[i] <- 1
+  }
+  else {
+    df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp[i] <- 0
+  }
+}
+
+
+
+df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp<- as.numeric(df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp)
+
+df_res_Ascl1_6h_over_Empty_6h <- df_res_Ascl1_6h_over_Empty_6h[order(df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp, decreasing = F),]
+
+df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp<- as.factor(df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp)
+
+ 
+df_res_Ascl1_6h_over_Empty_6h_plot_without_l<- ggplot()+ geom_point(df_res_Ascl1_6h_over_Empty_6h,mapping= aes(x = log2(baseMean), y= log2FoldChange, color = Ascl1_motif_sign_over_exp), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Empty ASV Induced 6h')+ theme_classic2()+ 
+  ylab('Log2 Fold Change')+
+  xlab('Log2 Mean Expression')  + ylim(-5,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1_motif_sign_over_exp'), labels = c('Ascl1 motif','none'),values=c("lightgrey", "red"))+
+  theme(legend.position = "none")
+  
+df_res_Ascl1_6h_over_Empty_6h_top_genes <- df_res_Ascl1_6h_over_Empty_6h[df_res_Ascl1_6h_over_Empty_6h$Ascl1_motif_sign_over_exp==1,]
+
+df_res_Ascl1_6h_over_Empty_6h_top_genes <- filter(df_res_Ascl1_6h_over_Empty_6h_top_genes,pvalue<0.1)
+
+df_res_Ascl1_6h_over_Empty_6h_top_genes <- filter(df_res_Ascl1_6h_over_Empty_6h_top_genes,log2FoldChange >1)
+
+df_res_Ascl1_6h_over_Empty_6h_top_genes_down <- filter(df_res_Ascl1_6h_over_Empty_6h_top_genes,log2FoldChange <(-1))
+
+
+````
+````{r}
+df_res_Ascl1_6h_over_Empty_6h[rownames(df_res_Ascl1_6h_over_Empty_6h)=='Hes6',]$log2FoldChange
+df_res_Ascl1_4h_over_Empty_4h[rownames(df_res_Ascl1_4h_over_Empty_4h)=='Hes6',]$log2FoldChange
+df_res_Ascl1_2h_over_Empty_2h[rownames(df_res_Ascl1_2h_over_Empty_2h)=='Hes6',]$log2FoldChange
+
+
+df_res_Ascl1_6h_over_Empty_6h[rownames(df_res_Ascl1_6h_over_Empty_6h)=='Atp2b4',]$log2FoldChange
+df_res_Ascl1_4h_over_Empty_4h[rownames(df_res_Ascl1_4h_over_Empty_4h)=='Atp2b4',]$log2FoldChange
+df_res_Ascl1_2h_over_Empty_2h[rownames(df_res_Ascl1_2h_over_Empty_2h)=='Atp2b4',]$log2FoldChange
+
+
+df_res_Ascl1_6h_over_Empty_6h[rownames(df_res_Ascl1_6h_over_Empty_6h)=='Slc44a2',]$log2FoldChange
+df_res_Ascl1_4h_over_Empty_4h[rownames(df_res_Ascl1_4h_over_Empty_4h)=='Slc44a2',]$log2FoldChange
+df_res_Ascl1_2h_over_Empty_2h[rownames(df_res_Ascl1_2h_over_Empty_2h)=='Slc44a2',]$log2FoldChange
+
+````
+
+
+````{r}
+gene_subset <- unique(rownames(rbind(df_res_Ascl1_6h_over_Empty_6h_top_genes,df_res_Ascl1_2h_over_Empty_2h_top_genes,df_res_Ascl1_4h_over_Empty_4h_top_genes)))
+
+
+df_res_Ascl1_6h_over_Empty_6h_subset <- filter(df_res_Ascl1_6h_over_Empty_6h, rownames(df_res_Ascl1_6h_over_Empty_6h)%in%genes_overexpressed)
+
+df_res_Ascl1_4h_over_Empty_4h_subset <- filter(df_res_Ascl1_4h_over_Empty_4h, rownames(df_res_Ascl1_4h_over_Empty_4h)%in%genes_overexpressed)
+
+df_res_Ascl1_2h_over_Empty_2h_subset <- filter(df_res_Ascl1_2h_over_Empty_2h, rownames(df_res_Ascl1_2h_over_Empty_2h)%in%genes_overexpressed)
+
+dd_subset <- as.data.frame(cbind(rownames(df_res_Ascl1_2h_over_Empty_2h_subset),
+                           df_res_Ascl1_2h_over_Empty_2h_subset$log2FoldChange,
+                           df_res_Ascl1_4h_over_Empty_4h_subset$log2FoldChange,
+                           df_res_Ascl1_6h_over_Empty_6h_subset$log2FoldChange))
+
+
+
+
+dd_subset <- column_to_rownames(dd_subset,'V1')
+
+
+name_col <- c('2h_treatment','4h_treatment','6h_treatment')
+
+colnames(dd_subset) <- name_col
+
+
+dd_subset_ord <- dd_subset[order(dd_subset$'2h_treatment'),]
+
+dd_subset_ord_melt <- melt(as.matrix(dd_subset_ord))
+name_columns <- c('Genes','treatment','Value')
+colnames(dd_subset_ord_melt) <- name_columns 
+
+dd_subset_ord_melt$Value <- as.numeric(dd_subset_ord_melt$Value)
+dd_subset_ord_melt <- na.omit(dd_subset_ord_melt)
+
+ggplot(dd_subset_ord_melt, aes(treatment, Genes)) +
+  geom_tile(aes(fill = Value), colour = "white") +
+  scale_fill_gradient(low = "white", high = "red") + xlab("")+ ylab("")+
+     theme(legend.title = element_blank(),
+           axis.text.x = element_text(angle=30,hjust=1,vjust=1.0),
+           axis.text.y = element_blank())
+````
+
+
+```{r}
+
+gene_subset <- unique(rownames(rbind(df_res_Ascl1_6h_over_Empty_6h_top_genes,df_res_Ascl1_2h_over_Empty_2h_top_genes,df_res_Ascl1_4h_over_Empty_4h_top_genes)))
+
+
+df_res_Ascl1_6h_over_Empty_6h_subset <- filter(df_res_Ascl1_6h_over_Empty_6h, rownames(df_res_Ascl1_6h_over_Empty_6h)%in%gene_subset)
+
+df_res_Ascl1_4h_over_Empty_4h_subset <- filter(df_res_Ascl1_4h_over_Empty_4h, rownames(df_res_Ascl1_4h_over_Empty_4h)%in%gene_subset)
+
+df_res_Ascl1_2h_over_Empty_2h_subset <- filter(df_res_Ascl1_2h_over_Empty_2h, rownames(df_res_Ascl1_2h_over_Empty_2h)%in%gene_subset)
+
+dd_subset <- as.data.frame(cbind(rownames(df_res_Ascl1_2h_over_Empty_2h_subset),
+                           df_res_Ascl1_2h_over_Empty_2h_subset$log2FoldChange,
+                           df_res_Ascl1_4h_over_Empty_4h_subset$log2FoldChange,
+                           df_res_Ascl1_6h_over_Empty_6h_subset$log2FoldChange))
+
+
+
+
+dd_subset <- column_to_rownames(dd_subset,'V1')
+
+
+name_col <- c('2h_treatment','4h_treatment','6h_treatment')
+
+colnames(dd_subset) <- name_col
+
+
+dd_subset_ord <- dd_subset[order(dd_subset$'2h_treatment'),]
+
+dd_subset_ord_melt <- melt(as.matrix(dd_subset_ord))
+name_columns <- c('Genes','treatment','Value')
+colnames(dd_subset_ord_melt) <- name_columns 
+
+dd_subset_ord_melt$Value <- as.numeric(dd_subset_ord_melt$Value)
+
+ggplot(dd_subset_ord_melt, aes(treatment, Genes)) +
+  geom_tile(aes(fill = Value), colour = "white") +
+  scale_fill_gradient(low = "white", high = "red")+ xlab("")+ ylab("")
+
+
+````

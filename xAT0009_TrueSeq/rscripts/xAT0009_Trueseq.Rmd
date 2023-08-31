@@ -1,0 +1,2408 @@
+---
+title: "xAT0009_Trueseq"
+author: "Angela Topic"
+date: "29/06/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo = TRUE, eval=FALSE}
+setwd('/home/ubuntu/MOUNT3/angela/xAT0009_Truseq/rscripts/')
+### packages ####
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(corrplot)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(tibble)
+library(plyr)
+library(ggpubr)
+library(ggrepel)
+library(reshape2)
+library(grid)
+library(gtools)
+library("ggVennDiagram")
+library(VennDiagram)
+library(RColorBrewer)
+library(wesanderson)
+library(scales)
+library(gplots)
+
+sessionInfo()
+```
+
+```{r}
+path_to_file <- "/home/ubuntu/MOUNT3/angela/xAT0009_Truseq/conc_files/"
+
+file_names  <- mixedsort(list.files(path = path_to_file, pattern="xAT"), decreasing = T)
+
+sample_names <- c('Empty_GFP_nonInduced_REP1', 
+                  'Empty_GFP_nonInduced_REP2',  
+                  'Empty_GFP_nonInduced_REP3',
+                  'Empty_GFP_Induced_REP1', 
+                  'Empty_GFP_Induced_REP2',  
+                  'Empty_GFP_Induced_REP3',
+                  'Empty_p300_nonInduced_REP1', 
+                  'Empty_p300_nonInduced_REP2',  
+                  'Empty_p300_nonInduced_REP3',
+                  'Empty_p300_Induced_REP1', 
+                  'Empty_p300_Induced_REP2',  
+                  'Empty_p300_Induced_REP3',
+                  'Empty_prdm9_nonInduced_REP1', 
+                  'Empty_prdm9_nonInduced_REP2',  
+                  'Empty_prdm9_nonInduced_REP3',
+                  'Empty_prdm9_Induced_REP1', 
+                  'Empty_prdm9_Induced_REP2',  
+                  'Empty_prdm9_Induced_REP3',
+                  'Empty_VPR_nonInduced_REP1', 
+                  'Empty_VPR_nonInduced_REP2',  
+                  'Empty_VPR_nonInduced_REP3',
+                  'Empty_VPR_Induced_REP1', 
+                  'Empty_VPR_Induced_REP2',  
+                  'Empty_VPR_Induced_REP3',
+                  'Ascl1_GFP_nonInduced_REP1', 
+                  'Ascl1_GFP_nonInduced_REP2',  
+                  'Ascl1_GFP_nonInduced_REP3',
+                  'Ascl1_GFP_Induced_REP1', 
+                  'Ascl1_GFP_Induced_REP2',  
+                  'Ascl1_GFP_Induced_REP3',
+                  'Ascl1_p300_nonInduced_REP1', 
+                  'Ascl1_p300_nonInduced_REP2',  
+                  'Ascl1_p300_nonInduced_REP3',
+                  'Ascl1_p300_Induced_REP1', 
+                  'Ascl1_p300_Induced_REP2',  
+                  'Ascl1_p300_Induced_REP3',
+                  'Ascl1_prdm9_nonInduced_REP1', 
+                  'Ascl1_prdm9_nonInduced_REP2',  
+                  'Ascl1_prdm9_nonInduced_REP3',
+                  'Ascl1_prdm9_Induced_REP1', 
+                  'Ascl1_prdm9_Induced_REP2',  
+                  'Ascl1_prdm9_Induced_REP3',
+                  'Ascl1_VPR_nonInduced_REP1', 
+                  'Ascl1_VPR_nonInduced_REP2',  
+                  'Ascl1_VPR_nonInduced_REP3',
+                  'Ascl1_VPR_Induced_REP1', 
+                  'Ascl1_VPR_Induced_REP2',  
+                  'Ascl1_VPR_Induced_REP3'
+                  )
+
+
+
+samplesheet <- data.frame(sample = c(sample_names), 
+                          fastq_1=c(paste0(path_to_file,file_names)),
+                                         fastq_2 = c(rep('', length(sample_names))),
+                                         strandedness = c(rep('unstranded', length(sample_names))))
+write.csv(samplesheet, "/home/ubuntu/MOUNT3/angela/xAT0009_Truseq/samplesheet.csv", row.names = FALSE,quote = F)
+
+
+
+
+
+
+```
+
+```{bash}
+nextflow run nf-core/rnaseq -profile docker -r 3.12.0 --input /home/ubuntu/MOUNT3/angela/xAT0009_Truseq/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0009_Truseq/nextflow_output --genome mm10 --max_cpus 16 --max_memory '50.GB'
+
+
+````
+
+## import dataset
+
+```{r}
+salmon.merged.gene_tpm <- salmon.merged.gene_tpm <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0009_Truseq/nextflow_output/star_salmon/salmon.merged.gene_tpm.tsv")
+
+
+merged.gene_tpm <- column_to_rownames(salmon.merged.gene_tpm, var= 'gene_id')
+
+### log transfomation
+log_merged.gene_tpm <- merged.gene_tpm
+
+log_merged.gene_tpm[2:length(merged.gene_tpm[1,])] <-log2(1+log_merged.gene_tpm[2:length(merged.gene_tpm[1,])])
+
+ggplot(log_merged.gene_tpm) + geom_histogram(aes(x=Ascl1_p300_Induced_REP1), bin = 40 )
+## a lot of the genes have 0 expression
+```
+
+```{r}
+## correlation between the conditions
+cor_merged.gene_tpm <- cor(merged.gene_tpm[2:length(merged.gene_tpm[1,])], method = 'pearson')
+
+corrplot(cor_merged.gene_tpm, method = 'color', type = "upper",tl.col = "black", tl.cex =.55, is.corr = FALSE)
+ggsave('../plots/heatmap.png',
+pheatmap(cor_merged.gene_tpm, cellheight=5, cellwidth = 5, fontsize = 4), dpi=300)
+dev.off()
+```
+
+```{r echo=FALSE}
+
+# conditions
+treatment <- c(rep(c(rep("ASV",3),
+               rep("DMSO",3)),7),
+               rep("ASV",3),
+               rep("DMSO",2))
+
+cell_type <- c(rep("Ascl1_GFP",6),rep("Ascl1_p300",6),rep("Ascl1_prdm9",6), rep("Ascl1_VPR",6),
+               rep("Empty_GFP",6),rep("Empty_p300",6),rep("Empty_prdm9",6), rep("Empty_VPR",5)
+               )
+
+cell_type_and_induction <- c(rep("Ascl1_GFP_ASV", 3), 
+                             rep("Ascl1_GFP_DMSO", 3),
+                             rep("Ascl1_p300_ASV", 3), 
+                             rep("Ascl1_p300_DMSO", 3),
+                             rep("Ascl1_prdm9_ASV", 3), 
+                             rep("Ascl1_prdm9_DMSO", 3),
+                             rep("Ascl1_VPR_ASV", 3), 
+                             rep("Ascl1_VPR_DMSO", 3),
+                             rep("Empty_GFP_ASV", 3), 
+                             rep("Empty_GFP_DMSO", 3),
+                             rep("Empty_p300_ASV", 3), 
+                             rep("Empty_p300_DMSO", 3),
+                             rep("Empty_prdm9_ASV", 3), 
+                             rep("Empty_prdm9_DMSO", 3),
+                             rep("Empty_VPR_ASV", 3), 
+                             rep("Empty_VPR_DMSO", 2)
+                             )
+
+# make d data frame for the DESeq analysis
+Data <- as.data.frame(cbind(colnames(merged.gene_tpm[2:(length(merged.gene_tpm)-1)]), treatment, cell_type, cell_type_and_induction))
+
+DESdata <-DESeqDataSetFromMatrix(countData=round(merged.gene_tpm[2:(length(merged.gene_tpm)-1)]),
+                                 colData=Data, design=~ cell_type_and_induction)
+dd <- DESeq(DESdata)
+
+```
+
+
+```{r}
+nrow(dd)
+resultsNames(dd)
+res <- results(dd)
+head(res)
+```
+
+
+```{r}
+# to normalize our data 
+dd_normalized <- vst(dd)
+assay(dd_normalized)[,1:24]
+
+Ascl1_induced <- cbind(merged.gene_tpm[2:4],merged.gene_tpm[8:10],merged.gene_tpm[14:16],merged.gene_tpm[20:22])
+Data_Ascl1_induced <- rbind(Data[1:3,],Data[7:9,],Data[13:15,],Data[19:21,])
+
+                                                                  
+
+DESdata_Ascl1 <-DESeqDataSetFromMatrix(countData=round(Ascl1_induced),
+                                 colData=Data_Ascl1_induced, design=~ cell_type_and_induction)
+
+
+dd_Ascl1 <- DESeq(DESdata_Ascl1)
+dd_normalized_Ascl1 <- vst(dd_Ascl1)
+
+ggsave('../plots/PCA_Ascl1-NNN_induced.png',
+       plotPCA(dd_normalized_Ascl1,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE) + ggtitle('Cell Type & Induction (Ascl1-NNN)') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)+ theme_classic2()
+,dpi = 300)
+
+
+Empty_induced <- cbind(merged.gene_tpm[26:28],merged.gene_tpm[32:34],merged.gene_tpm[38:40],merged.gene_tpm[44:46])
+Data_Empty_induced <- rbind(Data[25:27,],Data[31:33,],Data[37:39,],Data[43:45,])
+
+DESdata_Empty <-DESeqDataSetFromMatrix(countData=round(Empty_induced),
+                                 colData=Data_Empty_induced, design=~ cell_type_and_induction)
+
+
+dd_Empty <- DESeq(DESdata_Empty)
+dd_normalized_Empty <- vst(dd_Empty)
+
+ggsave('../plots/PCA_Empty-NNN_induced.png',
+       plotPCA(dd_normalized_Empty,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE) + ggtitle('Cell Type & Induction (Empty-NNN)') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5) + theme_classic2()
+,dpi = 300)
+
+
+
+All_induced <- cbind(merged.gene_tpm[2:4],merged.gene_tpm[8:10],merged.gene_tpm[14:16],merged.gene_tpm[20:22],
+                     merged.gene_tpm[26:28],merged.gene_tpm[32:34],merged.gene_tpm[38:40],merged.gene_tpm[44:46]) 
+
+Data_All_induced  <- rbind(Data[1:3,],Data[7:9,],Data[13:15,],Data[19:21,],                                                                                                     Data[25:27,],Data[31:33,],Data[37:39,],Data[43:45,])
+
+DESdata_All_induced<-DESeqDataSetFromMatrix(countData=round(All_induced),
+                                 colData=Data_All_induced, design=~ cell_type_and_induction)
+
+
+dd_All_Induced <- DESeq(DESdata_All_induced)
+dd_normalized_All_induced <- vst(dd_All_Induced)
+
+ggsave('../plots/PCA_all_induced.png',
+       plotPCA(dd_normalized_All_induced,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE) + ggtitle('Cell Type & Induction') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)+ theme_classic2()
+,dpi = 300)
+
+## PCA
+ggsave('../plots/PCA.png',
+       plotPCA(dd_normalized,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE) + ggtitle('Cell Type & Induction') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)+ theme_classic2()
+,dpi = 300)
+
+plotPCA(dd_normalized,
+  intgroup ='cell_type',
+  returnData = FALSE)+ ggtitle('cell_type') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)
+
+
+plotPCA(dd_normalized,
+  intgroup ='treatment',
+  returnData = FALSE)+ ggtitle('treatment') + geom_text(aes(label=name), size=2, vjust=1.5,hjust= 0.5)
+
+```
+
+```{r}
+
+dist_matrix <- as.matrix(dist(t(assay(dd_normalized))))
+
+dist_matrix_only_Empty <- as.matrix(dist(t(assay(dd_normalized)[,25:48])))
+dist_matrix_only_Ascl1 <- as.matrix(dist(t(assay(dd_normalized)[,1:24])))
+
+
+rownames(dist_matrix)<- colnames(dd_normalized)
+colnames(dist_matrix)<- colnames(dd_normalized)
+ggsave('../plots/heatmap_plot.png',
+pheatmap(dist_matrix,cellheight=4, cellwidth = 4, fontsize = 4),dpi=300)
+
+
+rownames(dist_matrix_only_Empty )<- colnames(dd_normalized)[25:48]
+colnames(dist_matrix_only_Empty)<- colnames(dd_normalized)[25:48]
+ggsave('../plots/heatmap_only_Empty_plot.png',
+pheatmap(dist_matrix_only_Empty,cellheight=4, cellwidth = 4, fontsize = 4),dpi=300)
+
+rownames(dist_matrix_only_Ascl1 )<- colnames(dd_normalized)[1:24]
+colnames(dist_matrix_only_Ascl1)<- colnames(dd_normalized)[1:24]
+ggsave('../plots/heatmap_plot.png',
+pheatmap(dist_matrix_only_Ascl1,cellheight=4, cellwidth = 4, fontsize = 4),dpi=300)
+```
+
+
+# MA-plots
+```{r}
+
+res_Ascl1_VPR_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV", "Ascl1_VPR_DMSO"), type="norm")
+
+
+png('../plots/res_Ascl1_VPR_ASV_over_DMSO.png', height = 400, width = 600)
+plotMA(res_Ascl1_VPR_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-VPR induced / Ascl1-VPR non-induced')
+dev.off()
+
+
+
+res_Ascl1_p300_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV", "Ascl1_p300_DMSO"), type="norm")
+
+png('../plots/res_Ascl1_p300_ASV_over_DMSO.png', height = 400, width = 600)
+plotMA(res_Ascl1_p300_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-p300 induced / Ascl1-p300 non-induced')
+dev.off()
+
+
+res_Ascl1_prdm9_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV", "Ascl1_prdm9_DMSO"), type="norm")
+
+png('../plots/res_Ascl1_prdm9_ASV_over_DMSO.png', height = 400, width = 600)
+plotMA(res_Ascl1_prdm9_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Ascl1-prdm9 non-induced')
+dev.off()
+
+
+res_Ascl1_GFP_ASV_over_DMSO <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_ASV", "Ascl1_GFP_DMSO"), type="norm")
+
+png('../plots/res_Ascl1_GFP_ASV_over_DMSO.png', height = 400, width = 600)
+plotMA(res_Ascl1_GFP_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-GFP induced / Ascl1-GFP non-induced')
+dev.off()
+```
+```{r}
+
+res_Ascl1_VPR_ASV_over_Empty_VPR_ASV <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV", "Empty_VPR_ASV"), type="norm")
+
+plotMA(res_Ascl1_VPR_ASV_over_Empty_VPR_ASV, ylim=c(-4,4),main = 'Ascl1-VPR induced / Empty-VPR induced')
+
+
+res_Ascl1_p300_ASV_over_Empty_p300_ASV <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV", "Empty_p300_ASV"), type="norm")
+
+plotMA(res_Ascl1_p300_ASV_over_Empty_p300_ASV, ylim=c(-4,4),main = 'Ascl1-p300 induced / Empty-p300 induced')
+
+#res_Ascl1_prdm9_ASV_over_Empty_prdm9_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV", "Empty_prdm9_ASV"), type="norm")
+
+plotMA(res_Ascl1_prdm9_ASV_over_Empty_prdm9_ASV , ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Empty-prdm9 induced')
+
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_ASV", "Empty_GFP_ASV"), type="norm")
+
+plotMA(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV  , ylim=c(-4,4),main = 'Ascl1-GFP induced / Empty-GFP induced')
+
+
+res_Empty_prdm9_ASV_over_noninduced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_prdm9_ASV", "Empty_prdm9_DMSO"), type="norm")
+
+plotMA(res_Empty_prdm9_ASV_over_noninduced   , ylim=c(-4,4),main = 'Empty-prdm9 induced / Empty-prdm9 non-induced')
+
+
+res_Empty_VPR_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_VPR_ASV", "Empty_GFP_ASV"), type="norm")
+
+plotMA(res_Empty_VPR_ASV_over_Empty_GFP_induced   , ylim=c(-4,4),main = 'Empty-VPR induced / Empty-GFP non-induced')
+
+
+
+res_Ascl1_GFP_DMSO_over_Empty_GFP_DMSO  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_DMSO", "Empty_GFP_DMSO"), type="norm")
+
+plotMA(res_Ascl1_GFP_DMSO_over_Empty_GFP_DMSO  , ylim=c(-4,4),main = 'Ascl1-GFP non-induced / Empty-GFP non-induced')
+```
+all plots 
+
+
+```{r}
+plotMA(res_Empty_prdm9_ASV_over_noninduced   , ylim=c(-4,4),main = 'Empty-prdm9 induced / Empty-prdm9 non-induced')
+
+plotMA(res_Empty_VPR_ASV_over_Empty_GFP_induced   , ylim=c(-4,4),main = 'Empty-VPR induced / Empty-GFP induced')
+
+plotMA(res_Ascl1_VPR_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-VPR induced / Ascl1-VPR non-induced')
+
+plotMA(res_Ascl1_p300_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-p300 induced / Ascl1-p300 non-induced')
+
+plotMA(res_Ascl1_prdm9_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Ascl1-prdmn9 non-induced')
+
+plotMA(res_Ascl1_GFP_ASV_over_DMSO, ylim=c(-4,4),main = 'Ascl1-GFP induced / Ascl1-GFP non-induced')
+
+plotMA(res_Ascl1_VPR_ASV_over_Empty_VPR_ASV, ylim=c(-4,4),main = 'Ascl1-VPR induced / Empty-VPR induced')
+
+plotMA(res_Ascl1_p300_ASV_over_Empty_p300_ASV, ylim=c(-4,4),main = 'Ascl1-p300 induced / Empty-p300 induced')
+
+plotMA(res_Ascl1_prdm9_ASV_over_Empty_prdm9_ASV , ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Empty-prdm9 induced')
+
+plotMA(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV , ylim=c(-4,4),main = 'Ascl1-GFP induced / Empty-GFP induced')
+
+plotMA(res_Ascl1_GFP_DMSO_over_Empty_GFP_DMSO , ylim=c(-4,4),main = 'Ascl1-GFP non-induced / Empty-GFP non-induced')
+
+```
+compare the co-factors
+
+```{r}
+
+res_Ascl1_prdm9_over_Ascl1_p300_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV","Ascl1_p300_ASV"), type="norm")
+res_Empty_prdm9_over_Empty_p300_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_prdm9_ASV","Empty_p300_ASV"), type="norm")
+
+
+res_Ascl1_prdm9_over_Ascl1_VPR_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV","Ascl1_VPR_ASV"), type="norm")
+res_Empty_prdm9_over_Empty_VPR_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_prdm9_ASV","Empty_VPR_ASV"), type="norm")
+
+
+res_Ascl1_p300_over_Ascl1_VPR_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV","Ascl1_VPR_ASV"), type="norm")
+res_Empty_p300_over_Empty_VPR_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_p300_ASV","Empty_VPR_ASV"), type="norm")
+
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV","Ascl1_GFP_ASV"), type="norm")
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV","Ascl1_GFP_ASV"), type="norm")
+res_Ascl1_VPR_over_Ascl1_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV","Ascl1_GFP_ASV"), type="norm")
+
+res_Empty_prdm9_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_prdm9_ASV","Empty_GFP_ASV"), type="norm")
+res_Empty_p300_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_p300_ASV","Empty_GFP_ASV"), type="norm")
+res_Empty_VPR_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_VPR_ASV","Empty_GFP_ASV"), type="norm")
+
+
+
+plotMA(res_Ascl1_prdm9_over_Ascl1_p300_ASV   , ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Ascl1-p300 induced')
+plotMA(res_Empty_prdm9_over_Empty_p300_ASV  , ylim=c(-4,4),main = 'Empty-prdm9 induced / Empty-p300 induced')
+
+plotMA(res_Ascl1_prdm9_over_Ascl1_VPR_ASV   , ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Ascl1-VPR induced')
+plotMA(res_Empty_prdm9_over_Empty_VPR_ASV  , ylim=c(-4,4),main = 'Empty-prdm9 induced / Empty-VPR induced')
+
+plotMA(res_Ascl1_p300_over_Ascl1_VPR_ASV  , ylim=c(-4,4),main = 'Ascl1-p300 induced / Ascl1-VPR induced')
+plotMA(res_Empty_prdm9_over_Empty_VPR_ASV  , ylim=c(-4,4),main = 'Empty-p300 induced / Empty-VPR induced')
+
+plotMA(res_Ascl1_p300_over_Ascl1_GFP_ASV  , ylim=c(-4,4),main = 'Ascl1-p300 induced / Ascl1-GFP induced')
+plotMA(res_Ascl1_prdm9_over_Ascl1_GFP_ASV  , ylim=c(-4,4),main = 'Ascl1-prdm9 induced / Ascl1-GFP induced')
+plotMA(res_Ascl1_VPR_over_Ascl1_GFP_ASV   , ylim=c(-4,4),main = 'Ascl1-VPR induced / Ascl1-GFP induced')
+
+```
+
+get genes with Ascl1 motif
+
+```{r}
+# for whole genome
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+
+# for specific motifs (JASPAR2022)
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+
+pwms.Ascl1  <- toPWM(pfms.Ascl1)
+```
+
+```{r}
+# get promoters
+ucsc_mm10 <- TxDb.Mmusculus.UCSC.mm10.knownGene
+g <- genes(ucsc_mm10)
+head (g)
+
+p <- promoters(genes(ucsc_mm10), upstream = 2000, downstream = 200)
+
+#load the mm10 genome to get the dna sequences
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+```
+# get significant genes
+
+```{r}
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df <- as.data.frame(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV)
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig <- res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df %>% filter(log2FoldChange >= abs(1)& pvalue<=0.05)
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df <- rownames_to_column(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df, "mgi_symbol")
+
+
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged <-unique(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged)
+```
+
+
+motif enrichment 
+```{r}
+se3.Ascl1 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged<- se3.Ascl1
+
+se3.Ascl1 <- se.seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.Ascl1<- assay(se3.Ascl1, "negLog10Padj")[, 1] > 4.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.Ascl1[is.na(sel3.Ascl1)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+#png('../plots/heatmap_Ascl1.png', height = 1100,width = 1200)
+plotMotifHeatmaps(x = se3.Ascl1[sel3.Ascl1,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+dev.off()
+
+```
+
+
+# get significant genes
+motif enrichment p300/GFP
+```{r}
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_p300_over_Ascl1_GFP_ASV)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_prdm9_over_Ascl1_p300_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_p300_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_p300_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+
+list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+se3.p300 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<- se3.p300
+
+se3.p300 <- se.seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.p300 <- assay(se3.p300, "negLog10Padj")[, 1] > 1.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.p300[is.na(sel3.p300)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/heatmap_p300.png', height = 800,width = 850)
+plotMotifHeatmaps(x = se3.p300[sel3.p300,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+dev.off()
+```
+
+motif enrichment prdm9/GFP
+```{r}
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_prdm9_over_Ascl1_GFP_ASV)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+se3.prdm9 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<- se3.prdm9
+
+se3.prdm9 <- se.seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.prdm9 <- assay(se3.prdm9, "negLog10Padj")[, 1] > 1.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.prdm9[is.na(sel3.prdm9)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/Motif_prdm9_plot.png', height = 1000,width = 1200)
+plotMotifHeatmaps(x = se3.prdm9[sel3.prdm9,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+dev.off()
+
+```
+
+
+motif enrichment VPR/GFP
+```{r}
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_VPR_over_Ascl1_GFP_ASV)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_VPR_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+se3.VPR <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<- se3.p300
+
+se3.VPR <- se.seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel3.VPR <- assay(se3.VPR, "negLog10Padj")[, 1] > 1.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.VPR[is.na(sel3.VPR)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/Motif_VPR_plot.png', height = 650, width = 600)
+plotMotifHeatmaps(x = se3.VPR[sel3.VPR,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+dev.off()
+```
+
+
+# significant diff expressed genes, overlapping
+
+```{r}
+
+x_all <- list(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig$mgi_symbol)
+display_venn(x_all,
+        category.names = c("only Ascl1" , "prdm9" , "p300", "VPR"),      # Circles
+        lwd = 2,
+        lty = 'blank',
+        fill = c("#999999", "#E69F00", "#56B4E9", "#009E73"),   # Numbers
+        cex = .9,
+        fontface = "italic",
+        # Set names
+        cat.cex = 1,
+        cat.fontface = "bold",
+        cat.default.pos = "outer",
+        cat.dist = c(0.055, 0.055, 0.1, 0.1),
+        main= "Diff. expressed Genes")
+
+# the uniquely differentially expressed genes
+
+only_prdm9 <- setdiff(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig$mgi_symbol)))
+
+only_p300 <- setdiff(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,unique(c(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig$mgi_symbol)))
+
+only_VPR <- setdiff(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig$mgi_symbol)))
+
+only_Ascl1 <- setdiff(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig$mgi_symbol)))
+
+
+only_prdm9_entrezID <- setdiff(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)))
+
+only_p300_entrezID <- setdiff(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,unique(c(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)))
+
+only_VPR_entrezID <- setdiff(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)))
+
+only_Ascl1_entrezID <- setdiff(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged$entrezgene_id,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)))
+
+
+
+# for up regulated
+
+only_prdm9_up <- setdiff(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$mgi_symbol)))
+
+only_p300_up <- setdiff(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,unique(c(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$mgi_symbol)))
+
+only_VPR_up <- setdiff(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$mgi_symbol)))
+
+only_Ascl1_up <- setdiff(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$mgi_symbol,unique(c(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol)))
+
+```
+
+```{r}
+top10prChIP <- read.delim("/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/top10prChIP.bed", header=F,col.names = c("chrom", "start", "end", "4", "5", "6"))
+GR_top10prChIP <- GRanges(seqnames = as.character(top10prChIP$chrom),
+                        ranges = IRanges(start = top10prChIP$start, end = top10prChIP$end))
+
+Anno_GR_top10prChIP <- annotatePeak(GR_top10prChIP, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+Anno_GR_top10prChIP_df <- as.data.frame(Anno_GR_top10prChIP)
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_in_ChIP <- filter(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged, res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)))
+
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_in_ChIP <- filter(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged, res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)))
+
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_in_ChIP <- filter(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged, res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)))
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_in_ChIP <- filter(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged, res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)))
+
+
+only_Ascl1 <- intersect(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_in_ChIP$mgi_symbol,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_in_ChIP$mgi_symbol)
+
+
+only_Asintersect(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_in_ChIP$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_in_ChIP$mgi_symbol)
+
+intersect(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$mgi_symbol)
+
+
+```
+
+make datasets with up or down regulated genes
+```{r}
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up <-res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df %>% filter(log2FoldChange >= 1 & pvalue<=0.05)
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up <- rownames_to_column(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up, "mgi_symbol")
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_down <-res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df %>% filter(log2FoldChange <= (-1) & pvalue<=0.05)
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_down <- rownames_to_column(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_down, "mgi_symbol")
+
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= 0.5 & pvalue<=0.05)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up, "mgi_symbol")
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_down <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange <= (-0.5) & pvalue<=0.05)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_down <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_down, "mgi_symbol")
+
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up <- res_Ascl1_p300_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= 0.5& pvalue<=0.05)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up, "mgi_symbol")
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_down <- res_Ascl1_p300_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange <= (-0.5) & pvalue<=0.05)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_down <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_down, "mgi_symbol")
+
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= 0.5 & pvalue<=0.05)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up, "mgi_symbol")
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_down <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange <= (-0.5) & pvalue<=0.05)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_down <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_down, "mgi_symbol")
+```
+
+
+
+
+
+make venndiagrams 
+
+
+
+```{r}
+
+x_up <- list(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$mgi_symbol)
+
+
+x_down <- list(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_down$mgi_symbol,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_down$mgi_symbol,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_down$mgi_symbol,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_down$mgi_symbol)
+
+display_venn <- function(x, ...){
+  library(VennDiagram)
+  grid.newpage()
+  venn_object <- venn.diagram(x, filename = NULL, ...)
+  grid.draw(venn_object)
+}
+
+#png('../plots/Venndiagram_up.png', height = 400, width = 900)
+png('../plots/Venndiagram_up.png', height = 600, width = 800)
+display_venn(x_up,
+        category.names = c("GFP" , "prdm9" , "p300", "VPR"),      # Circles
+        lwd = 2,
+        lty = 'blank',
+        fill = c("#999999", "#E69F00", "#56B4E9", "#009E73"),   # Numbers
+        cex = 1.5,
+        fontface = "italic",
+        # Set names
+        cat.cex = 1.8,
+        cat.fontface = "bold",
+        cat.default.pos = "outer",
+        cat.dist = c(0.23, 0.23, 0.12, 0.1),
+        main="Upregulated Genes")
+dev.off()
+
+png('../plots/Venndiagram_down.png', height = 600, width = 800)
+display_venn(x_down,
+        category.names = c("GFP" , "prdm9" , "p300", "VPR"),      # Circles
+        lwd = 2,
+        lty = 'blank',
+        fill = c("#999999", "#E69F00", "#56B4E9", "#009E73"),   # Numbers
+        cex = 1.5,
+        fontface = "italic",
+        # Set names
+        cat.cex = 1.8,
+        cat.fontface = "bold",
+        cat.default.pos = "outer",
+        cat.dist = c(0.23, 0.23, 0.12, 0.1),
+        main= "Downregulated Genes")
+dev.off()
+
+```
+```{r}
+
+ggsave('../plots/res_Ascl1_GFP_ASV_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-GFP Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('Significant (< 0.05)'),labels = c('TRUE','FALSE'))+
+  theme(legend.position = "none"), dpi=300)
+
+
+
+ggsave('../plots/res_Ascl1_p300_over_Ascl1_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_p300_over_Ascl1_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+
+ggsave('../plots/res_Ascl1_prdm9_over_Ascl1_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"),dpi=300)
+
+
+ggsave('../plots/res_Ascl1_VPR_over_Ascl1_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_Ascl1_prdm9_over_Ascl1_p300_ASV_df <- as.data.frame(res_Ascl1_prdm9_over_Ascl1_p300_ASV)
+
+
+ggsave('../plots/res_Ascl1_prdm9_over_Ascl1_p300_ASV.png',
+ggplot()+ geom_point(res_Ascl1_prdm9_over_Ascl1_p300_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Ascl1-p300 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_Empty_prdm9_over_Empty_p300_ASV_df <- as.data.frame(res_Empty_prdm9_over_Empty_p300_ASV)
+
+ggsave('../plots/res_Empty_prdm9_over_Empty_p300_ASV.png',
+ggplot()+ geom_point(res_Empty_prdm9_over_Empty_p300_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-prdm9 Induced / Empty-p300 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_Empty_prdm9_over_Empty_GFP_ASV_df <- as.data.frame(res_Empty_prdm9_over_Empty_GFP_ASV)
+
+ggsave('../plots/res_Empty_prdm9_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Empty_prdm9_over_Empty_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-prdm9 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_Empty_p300_over_Empty_GFP_ASV_df <- as.data.frame(res_Empty_p300_over_Empty_GFP_ASV)
+
+ggsave('../plots/res_Empty_p300_over_Empty_p300_ASV.png',
+ggplot()+ geom_point(res_Empty_p300_over_Empty_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-p300 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"),dpi=300)
+
+res_Empty_VPR_over_Empty_GFP_ASV_df <- as.data.frame(res_Empty_VPR_over_Empty_GFP_ASV)
+
+ggsave('../plots/res_Empty_VPR_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Empty_VPR_over_Empty_GFP_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-VPR Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df <- as.data.frame(res_Ascl1_VPR_ASV_over_Empty_VPR_ASV)
+
+ggsave('../plots/res_Ascl1_VPR_ASV_over_Empty_VPR_ASV.png',
+ggplot()+ geom_point(res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-VPR Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+```
+
+
+
+```{r}
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$inChIP <- NA
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged[res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)),]$inChIP <- 1
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged[is.na(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$inChIP),]$inChIP <- 0
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$inChIP <- as.factor(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$inChIP)
+
+
+#png('../plots/res_Ascl1_prdm9_over_Ascl1_GFP_ASV_ChIP.png', height = 400, width = 900)
+ggsave('../plots/res_Ascl1_prdm9_over_Ascl1_GFP_ASV_ChIP.png',
+ggplot()+ geom_point(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged[order(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged$inChIP),],mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= inChIP), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('in ChIP Data'),labels = c('absent','present'))+
+  theme(legend.position = "right"), dpi= 300)
+
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$inChIP <- NA
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged[res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)),]$inChIP <- 1
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged[is.na(res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$inChIP),]$inChIP <- 0
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$inChIP <- as.factor(res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$inChIP)
+
+
+ggsave('../plots/res_Ascl1_p300_over_Ascl1_GFP_ASV_ChIP.png',
+ggplot()+ geom_point(res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged[order(res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged$inChIP),],mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= inChIP), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('in ChIP Data'),labels = c('absent','present'))+
+  theme(legend.position = "right"),dpi=300)
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$inChIP <- NA
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged[res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)),]$inChIP <- 1
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged[is.na(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$inChIP),]$inChIP <- 0
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$inChIP <- as.factor(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$inChIP)
+
+
+
+ggsave('../plots/res_Ascl1_VPR_over_Ascl1_GFP_ASV_ChIP.png',
+ggplot()+ geom_point(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged[order(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged$inChIP),],mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= inChIP), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('in ChIP Data'),labels = c('absent','present')), dpi=300)
+
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$inChIP <- NA
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged[res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$entrezgene_id %in% as.numeric(unique(Anno_GR_top10prChIP_df$geneId)),]$inChIP <- 1
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged[is.na(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$inChIP),]$inChIP <- 0
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$inChIP <- as.factor(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$inChIP)
+
+
+ggsave('../plots/res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_ChIP.png',
+ggplot()+ geom_point(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged[order(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df.merged$inChIP),],mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= inChIP), cex = 0.7) + ggtitle('Ascl1-GFP Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('in ChIP Data'),labels = c('absent','present'))+
+  theme(legend.position = "right"), dpi=300)
+
+
+
+
+```
+
+GO-Enrichment
+
+```{r}
+only_prdm9_entrezID
+only_p300_entrezID
+only_VPR_entrezID
+only_Ascl1_entrezID
+
+GO_prdm9_BP <- enrichGO(only_prdm9_entrezID, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05)
+GO_prdm9_MF <- enrichGO(only_prdm9_entrezID, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.05)
+GO_Ascl1_BP <- enrichGO(only_Ascl1_entrezID, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05)
+GO_Ascl1_MF <- enrichGO(only_Ascl1_entrezID, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.05)
+GO_p300_BP <- enrichGO(only_p300_entrezID, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05)
+GO_p300_MF <- enrichGO(only_p300_entrezID, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.05)
+
+KEGG_prdm9 <- enrichKEGG(only_prdm9_entrezID, "mmu", pvalueCutoff = 0.05)
+KEGG_p300 <- enrichKEGG(only_p300_entrezID,"mmu", pvalueCutoff = 0.05)
+
+
+
+
+
+prdm9_BP <- dotplot(GO_prdm9_BP, showCategory=10) + ggtitle("BP enrichment Prdm9")
+prdm9_MF <- dotplot(GO_prdm9_MF, showCategory=10)+ ggtitle("MF enrichment Prdm9")
+
+
+p300_BP <- dotplot(GO_p300_BP, showCategory=10)+ ggtitle("BP enrichment p300")
+p300_MF <- dotplot(GO_p300_MF, showCategory=5)+ ggtitle("MF enrichment p300")
+
+
+Ascl1_BP <- dotplot(GO_Ascl1_BP, showCategory=10)+ ggtitle("BP enrichment Ascl1")
+Ascl1_MF <- dotplot(GO_Ascl1_MF, showCategory=10)+ ggtitle("MF enrichment Ascl1")
+
+ 
+
+prdm9_BP 
+prdm9_MF
+
+p300_BP 
+#p300_MF
+
+Ascl1_BP 
+Ascl1_MF
+
+ggsave('../plots/Ascl1_MF.png',Ascl1_MF ,dpi=300)
+
+
+
+
+
+```
+heatmap of top diff. expressed genes
+```{r}
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up_top_10 <- res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up[order(-res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up$log2FoldChange),][1:10,]$mgi_symbol
+
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up_top_5 <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up[order(-res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up$log2FoldChange),][1:5,]$mgi_symbol 
+
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up_top_10 <- res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up[order(-res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up$log2FoldChange),][1:10,]$mgi_symbol
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up_top_10 <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up[order(-res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up$log2FoldChange),][1:10,]$mgi_symbol 
+
+#all the ttop expressed genes in the three cond.
+merged_top_10 <- unique(c(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig_up_top_10,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig_up_top_5,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig_up_top_10,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig_up_top_10))
+
+#filter all the datasets to only have these genes
+res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_filtered <- res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df%>%filter(mgi_symbol %in%merged_top_10)%>% select(c("mgi_symbol","log2FoldChange"))
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_filtered <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df%>%filter(mgi_symbol %in%merged_top_10)%>% select(c("mgi_symbol","log2FoldChange"))
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_filtered <- res_Ascl1_p300_over_Ascl1_GFP_ASV_df%>%filter(mgi_symbol %in%merged_top_10)%>% select(c("mgi_symbol","log2FoldChange"))
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_filtered <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df%>%filter(mgi_symbol %in%merged_top_10)%>% select(c("mgi_symbol","log2FoldChange"))
+
+
+merged_df <- cbind(res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_filtered,res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_filtered$log2FoldChange,res_Ascl1_p300_over_Ascl1_GFP_ASV_df_filtered$log2FoldChange,res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_filtered$log2FoldChange)
+
+df_names <-  c("mgi_symbol", "GFP", "VPR","p300","prdm9")
+colnames(merged_df) <- df_names
+
+#melt df
+merged_df <- merged_df[order(-merged_df$GFP),]
+merged_df$mgi_symbol <- with(merged_df, reorder(mgi_symbol, GFP))
+melt_merged_df <- melt(merged_df)
+melt_merged_df <- ddply(melt_merged_df, .(variable), transform, rescale = rescale(value))
+
+pal <-wes_palette("Royal1", 100, type = "continuous") 
+
+#png('../plots/Top_overexpressed_genes.png', height = 400, width = 900)
+ggsave('../plots/Top_overexpressed_genes.png',tst,dpi = 300)
+tst <- ggplot(melt_merged_df, aes(variable, mgi_symbol,fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#B2182B",
+                       mid = "#FFFFCC",
+                       high = "blue4",name = expression('log2FoldChange')) + 
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +labs(x = "", y = "Genes") +ggtitle("Top Overexpressed Genes")+ coord_fixed(ratio=1/9)
+dev.off()
+
+```
+
+
+
+motif enrichment for only Ascl1
+```{r}
+se3.Ascl1_Ascl1 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged,
+                           pwmL = pwms.Ascl1,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+Ascl1.se.seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged<- se3.Ascl1_Ascl1
+
+se3.Ascl1_Ascl1<- Ascl1.se.seq_GR.list.res_Ascl1_GFP_ASV_over_Empty_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+se3.Ascl1_Ascl1<- assay(se3.Ascl1_Ascl1, "negLog10Padj")[, 1] > 0.5
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+se3.Ascl1_Ascl1[is.na(se3.Ascl1_Ascl1)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+#png('../plots/heatmap_Ascl1.png', height = 1100,width = 1200)
+plotMotifHeatmaps(x = se3.Ascl1_Ascl1[se3.Ascl1_Ascl1,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+dev.off()
+
+```
+
+
+# get significant genes
+motif enrichment p300/GFP
+```{r}
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_p300_over_Ascl1_GFP_ASV)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_prdm9_over_Ascl1_p300_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_p300_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_p300_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+
+res_Ascl1_p300_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_p300_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+
+list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+Ascl1.se3.p300 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms.Ascl1,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+Ascl1.se.seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged<- Ascl1.se3.p300
+
+Ascl1.se3.p300 <- Ascl1.se.seq_GR.list.res_Ascl1_p300_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+Ascl1.se3.p300 <- assay(Ascl1.se3.p300, "negLog10Padj")[, 1] > 0.5
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.p300[is.na(sel3.p300)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/heatmap_p300.png', height = 800,width = 850)
+plotMotifHeatmaps(x = se3.p300[sel3.p300,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+dev.off()
+```
+
+motif enrichment prdm9/GFP
+```{r}
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_prdm9_over_Ascl1_GFP_ASV)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+
+res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+Ascl1.se3.prdm9 <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms.Ascl1,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+Ascl1.se.seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged<- Ascl1.se3.prdm9
+
+Ascl1.se3.prdm9<- Ascl1.se.seq_GR.list.res_Ascl1_prdm9_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+Ascl1.se3.prdm9 <- assay(Ascl1.se3.prdm9, "negLog10Padj")[, 1] > 1.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.prdm9[is.na(sel3.prdm9)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/Motif_prdm9_plot.png', height = 1000,width = 1200)
+plotMotifHeatmaps(x = se3.prdm9[sel3.prdm9,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+dev.off()
+
+```
+
+
+motif enrichment VPR/GFP
+```{r}
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df <- as.data.frame(res_Ascl1_VPR_over_Ascl1_GFP_ASV)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig <- res_Ascl1_VPR_over_Ascl1_GFP_ASV_df %>% filter(log2FoldChange >= abs(0.5)& pvalue<=0.05)
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig, "mgi_symbol")
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df <- rownames_to_column(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df, "mgi_symbol")
+
+#get DNA sequence
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = res_Ascl1_VPR_over_Ascl1_GFP_ASV_df$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged <- dplyr::inner_join(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig, biomart_info, by = "mgi_symbol")
+res_Ascl1_VPR_over_Ascl1_GFP_ASV_df.merged <- dplyr::inner_join(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df, biomart_info, by = "mgi_symbol")
+
+list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<-unique(res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged$entrezgene_id)
+
+# to extract genomic region of all genes in the list above
+
+#elementMetadata(p)[,1] list of genes 
+GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<- p[(elementMetadata(p)[,1] %in% list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged)]
+
+seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged)
+```
+
+
+
+```{r}
+Ascl1.se3.VPR <- calcBinnedMotifEnrR(seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged,
+                           pwmL = pwms.Ascl1,
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+Ascl1.se.seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged<- Ascl1.se3.VPR
+
+Ascl1.se3.VPR<- Ascl1.se.seq_GR.list.res_Ascl1_VPR_over_Ascl1_GFP_ASV_df_sig.merged
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+Ascl1.se3.VPR <- assay(Ascl1.se3.VPR, "negLog10Padj")[, 1] > 1.0
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel3.VPR[is.na(sel3.VPR)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png('../plots/Motif_VPR_plot.png', height = 650, width = 600)
+plotMotifHeatmaps(x = se3.VPR[sel3.VPR,], which.plots = c("log2enr", "negLog10Padj"), 
+                  width = 1.8, maxEnr = 2, maxSig = 10, 
+                  show_seqlogo = TRUE)
+
+dev.off()
+```
+
+
+#### Comparing to TB
+
+
+
+
+
+
+```{r}
+
+res_Ascl1_ASV_over_Empty_induced_df_from_TM <- read_csv("/home/ubuntu/MOUNT3/angela/xAT0009_Truseq/Datasets/res_Ascl1_ASV_over_Empty_induced_df_from_TM.csv")
+
+res_Ascl1_ASV_over_Empty_induced_df_from_TM <- column_to_rownames(res_Ascl1_ASV_over_Empty_induced_df_from_TM, "...1")
+
+res_Ascl1_ASV_over_Empty_induced_df_from_TM_filtered <- res_Ascl1_ASV_over_Empty_induced_df_from_TM  %>% filter(log2FoldChange >= 0& pvalue<=0.05) %>% select(log2FoldChange)
+
+res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_filtered <- res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df %>% filter(log2FoldChange >= 0 & pvalue<=0.05) %>% select(log2FoldChange)
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged <- merge(res_Ascl1_ASV_over_Empty_induced_df_from_TM_filtered, res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_filtered, by=0, all=TRUE)
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged[is.na(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged )] <- 0 
+
+colnames(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged) <- c("Genes", "TM_Log2FoldChange","Log2FoldChange")
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged$TM_Log2FoldChange <- as.numeric(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged$TM_Log2FoldChange)
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged$Log2FoldChange <- as.numeric(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged$Log2FoldChange)
+
+
+ggsave('../plots/Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged.png',
+ggplot()+ geom_point(dplyr::filter(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged, Log2FoldChange!=0 & TM_Log2FoldChange!=0 ),mapping= 
+                       aes(x = Log2FoldChange, y= TM_Log2FoldChange), cex = 0.7) + ggtitle("All sign. overexpressed genes compared to TMs RNAseq")+ theme_classic2()+ 
+  xlab('Log2FoldChange RNAseq')+
+  ylab('Log2FoldChange RNAseq Tobias') + ylim(0,2.5) + xlim(0,2.5),
+
+  dpi=300)
+
+dplyr::filter(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_meerged, Log2FoldChange==0 & TM_Log2FoldChange!=0 )
+```
+
+```{r}
+
+res_Ascl1_ASV_over_Empty_induced_df_from_TM_sel <- res_Ascl1_ASV_over_Empty_induced_df_from_TM %>% select(c("log2FoldChange","pvalue"))
+
+res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_sel <- res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df %>% select(c("log2FoldChange","pvalue"))
+
+
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel <- merge(res_Ascl1_ASV_over_Empty_induced_df_from_TM_sel, res_Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_sel, by=0, all=TRUE)
+
+Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel[is.na(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel)] <- 0 
+
+colnames(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel) <- c("Genes", "TM_Log2FoldChange","pvalue_TM","Log2FoldChange", "pvalue")
+
+
+
+
+ggsave('../plots/Scatter_plot_all_genes_TM_AT.png',
+ggplot()+ geom_point(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel,mapping= 
+                       aes(x = Log2FoldChange, y= TM_Log2FoldChange, color=pvalue<0.05), cex = 0.7) + ggtitle("All Genes of RNAseq")+ theme_classic2()+ 
+  xlab('Log2FoldChange RNAseq')+
+  ylab('Log2FoldChange RNAseq Tobias') + ylim(0,2.5) + xlim(0,2.5)+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('My RNAseq'), labels = c('> 0.05','< 0.05'))+
+  theme(legend.position = "right"),
+
+  dpi=300)
+
+
+ggsave('../plots/Scatter_plot_all_genes_TM.png',
+ggplot()+ geom_point(Ascl1_VPR_ASV_over_Empty_VPR_ASV_df_merged_sel,mapping= 
+                       aes(x = Log2FoldChange, y= TM_Log2FoldChange, color=pvalue_TM<0.05), cex = 0.7) + ggtitle("All Genes of RNAseq")+ theme_classic2()+ 
+  xlab('Log2FoldChange RNAseq')+
+  ylab('Log2FoldChange RNAseq Tobias') + ylim(0,2.5) + xlim(0,2.5)+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),name = expression('Tobias RNAseq'), labels = c('> 0.05','< 0.05'))+
+  theme(legend.position = "right"),
+
+  dpi=300)
+
+```
+
+```{r}
+
+
+
+res_Ascl1_p300_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV","Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_prdm9_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV","Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_VPR_over_Empty_GFP_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV","Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_prdm9_over_Empty_prdm9_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV","Empty_prdm9_ASV"), type="norm")
+
+res_Ascl1_p300_over_Empty_p300_ASV  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV","Empty_p300_ASV"), type="norm")
+
+
+res_Ascl1_p300_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_p300_over_Empty_GFP_ASV)
+res_Ascl1_prdm9_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_prdm9_over_Empty_GFP_ASV)
+res_Ascl1_VPR_over_Empty_GFP_ASV  <- as.data.frame(res_Ascl1_VPR_over_Empty_GFP_ASV)
+res_Ascl1_prdm9_over_Empty_prdm9_ASV <- as.data.frame(res_Ascl1_prdm9_over_Empty_prdm9_ASV)
+res_Ascl1_p300_over_Empty_p300_ASV <- as.data.frame(res_Ascl1_p300_over_Empty_p300_ASV)
+
+ggsave('../plots/res_Ascl1_p300_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_p300_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+ggsave('../plots/res_Ascl1_prdm9_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_prdm9_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+ggsave('../plots/res_Ascl1_VPR_over_Empty_GFP_ASV.png',
+ggplot()+ geom_point(res_Ascl1_VPR_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+ggsave('../plots/res_Ascl1_prdm9_over_Empty_prdm9_ASV.png',
+ggplot()+ geom_point(res_Ascl1_prdm9_over_Empty_prdm9_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Empty-prdm9 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+ggsave('../plots/res_Ascl1_p300_over_Empty_p300_ASV.png',
+ggplot()+ geom_point(res_Ascl1_p300_over_Empty_p300_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Empty-p300 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none"), dpi=300)
+
+
+```
+#Finsl MA-plot compared to background Empty_GFP
+```{r}
+
+
+res_Ascl1_VPR_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV", "Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_p300_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV", "Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_prdm9_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV", "Empty_GFP_ASV"), type="norm")
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_ASV", "Empty_GFP_ASV"), type="norm")
+
+
+
+df_res_Ascl1_VPR_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_VPR_ASV_over_Empty_GFP_induced)
+df_res_Ascl1_p300_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_p300_ASV_over_Empty_GFP_induced )
+df_res_Ascl1_prdm9_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_prdm9_ASV_over_Empty_GFP_induced )
+df_res_Ascl1_GFP_over_Empty_GFP_ASV <- as.data.frame(res_Ascl1_GFP_ASV_over_Empty_GFP_induced )
+
+
+
+res_Ascl1_VPR_over_Empty_GFP_plot <- ggplot()+ geom_point(df_res_Ascl1_VPR_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_p300_over_Empty_GFP_plot <- ggplot()+ geom_point(df_res_Ascl1_p300_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_prdm9_over_Empty_GFP_plot <- ggplot()+ geom_point(df_res_Ascl1_prdm9_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_GFP_over_Empty_GFP_plot <- ggplot()+ geom_point(df_res_Ascl1_GFP_over_Empty_GFP_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-GFP Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+
+
+res_Ascl1_VPR_over_Empty_GFP_plot
+res_Ascl1_p300_over_Empty_GFP_plot
+res_Ascl1_prdm9_over_Empty_GFP_plot
+res_Ascl1_GFP_over_Empty_GFP_plot
+
+ggsave('../plots/res_Ascl1_VPR_over_Empty_GFP_ASV.png',res_Ascl1_VPR_over_Empty_GFP_plot,dpi=300)
+ggsave('../plots/res_Ascl1_p300_over_Empty_GFP_ASV.png',res_Ascl1_p300_over_Empty_GFP_plot,dpi=300)
+ggsave('../plots/res_Ascl1_prdm9_over_Empty_GFP_ASV.png',res_Ascl1_prdm9_over_Empty_GFP_plot,dpi=300)
+ggsave('../plots/res_Ascl1_GFP_over_Empty_GFP_ASV.png',res_Ascl1_GFP_over_Empty_GFP_plot,dpi=300)
+
+
+
+```
+
+#Finsl MA-plot to get all COFs
+```{r}
+
+
+res_Ascl1_VPR_ASV_over_Empty_VPR_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV", "Empty_VPR_ASV"), type="norm")
+
+res_Ascl1_p300_ASV_over_Empty_p300_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV", "Empty_p300_ASV"), type="norm")
+
+res_Ascl1_prdm9_ASV_over_Empty_prdm9_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV", "Empty_prdm9_ASV"), type="norm")
+
+res_Ascl1_GFP_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_ASV", "Empty_GFP_ASV"), type="norm")
+
+
+
+df_res_Ascl1_VPR_over_Empty_VPR_ASV <- as.data.frame(res_Ascl1_VPR_ASV_over_Empty_VPR_induced )
+df_res_Ascl1_p300_over_Empty_p300_ASV <- as.data.frame(res_Ascl1_p300_ASV_over_Empty_p300_induced )
+df_res_Ascl1_prdm9_over_Empty_prdm9_ASV <- as.data.frame(res_Ascl1_prdm9_ASV_over_Empty_prdm9_induced )
+
+
+
+res_Ascl1_VPR_over_Empty_VPR_plot <- ggplot()+ geom_point(df_res_Ascl1_VPR_over_Empty_VPR_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-VPR Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_p300_over_Empty_p300_plot <- ggplot()+ geom_point(df_res_Ascl1_p300_over_Empty_p300_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Empty-p300 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_prdm9_over_Empty_prdm9_plot <- ggplot()+ geom_point(df_res_Ascl1_prdm9_over_Empty_prdm9_ASV,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Empty-prdm9 Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_VPR_over_Empty_VPR_plot
+res_Ascl1_p300_over_Empty_p300_plot
+res_Ascl1_prdm9_over_Empty_prdm9_plot
+res_Ascl1_GFP_over_Empty_GFP_plot
+
+ggsave('../plots/res_Ascl1_VPR_over_Empty_VPR_ASV.png',res_Ascl1_VPR_over_Empty_VPR_plot,dpi=300)
+ggsave('../plots/res_Ascl1_p300_over_Empty_p300_ASV.png',res_Ascl1_p300_over_Empty_p300_plot,dpi=300)
+ggsave('../plots/res_Ascl1_prdm9_over_Empty_prdm9_ASV.png',res_Ascl1_prdm9_over_Empty_prdm9_plot,dpi=300)
+
+
+
+
+```
+
+
+# Venndiagrams for all compared to GFP-Empty
+
+```{r}
+sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV <- df_res_Ascl1_GFP_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV <- df_res_Ascl1_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV <- df_res_Ascl1_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV <- df_res_Ascl1_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+
+all_diff_expressed_compared_Empty_GFP <-list(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                             sig_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             sig_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             sig_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+ 
+
+
+
+Venndiagram_compared_Empty_GFP <- ggVennDiagram(all_diff_expressed_compared_Empty_GFP, category.names = c("Ascl1-\nGFP", "Ascl1-\nVPR", "Ascl1-\np300","Ascl1-\nprdm9"), label="count", label_alpha = 0,label_size = 6,set_size = 4.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/Venndiagram_compared_Empty_GFP.png',Venndiagram_compared_Empty_GFP,dpi=300)
+
+```
+
+# Venndiagram for COFs compared to Ascl1 GFP/Empty-GFP
+
+```{r}
+sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV <- df_res_Ascl1_VPR_over_Empty_VPR_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV <- df_res_Ascl1_p300_over_Empty_p300_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV <- df_res_Ascl1_prdm9_over_Empty_prdm9_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+
+all_diff_expressed_Ascl1_GFP_Empty_COFs_VPR <-list(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                                   sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV$mgi_symbol)
+
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_VPR <- ggVennDiagram(all_diff_expressed_Ascl1_GFP_Empty_COFs_VPR, category.names = c("Ascl1-GFP/Empty-GFP", "Ascl1-VPR/Empty-VPR"), label="count", label_alpha = 0,
+                                                               label_size = 6,set_size = 5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black"))+
+  theme_void()+ theme(legend.position = "none")
+
+all_diff_expressed_Ascl1_GFP_Empty_COFs_p300 <-list(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                                   sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV$mgi_symbol)
+
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_p300 <- ggVennDiagram(all_diff_expressed_Ascl1_GFP_Empty_COFs_p300, category.names = c("Ascl1-GFP/Empty-GFP", "Ascl1-p300/Empty-p300"), label="count", label_alpha = 0,
+                                                               label_size = 6,set_size = 5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black"))+
+  theme_void()+ theme(legend.position = "none")
+
+all_diff_expressed_Ascl1_GFP_Empty_COFs_prdm9 <-list(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                                   sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV$mgi_symbol)
+
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_prdm9 <- ggVennDiagram(all_diff_expressed_Ascl1_GFP_Empty_COFs_prdm9, category.names = c("Ascl1-GFP/Empty-GFP", "Ascl1-prdm9/Empty-prdm9"), label="count", label_alpha = 0,
+                                                               label_size = 6,set_size = 5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black"))+
+  theme_void()+ theme(legend.position = "none")
+
+
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_prdm9
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_p300
+Venndiagram_compared_Ascl1_GFP_Empty_COFs_VPR
+
+ggsave('../plots/Venndiagram_compared_Ascl1_GFP_Empty_COFs_prdm9.png',Venndiagram_compared_Ascl1_GFP_Empty_COFs_prdm9,dpi=300)
+ggsave('../plots/Venndiagram_compared_Ascl1_GFP_Empty_COFs_p300.png',Venndiagram_compared_Ascl1_GFP_Empty_COFs_p300,dpi=300)
+ggsave('../plots/Venndiagram_compared_Ascl1_GFP_Empty_COFs_VPR.png',Venndiagram_compared_Ascl1_GFP_Empty_COFs_VPR,dpi=300)
+
+```
+
+
+# extract the sign. genes
+```{r}
+unique_Ascl1_GFP_Empty_COFs_prdm9 <- setdiff(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                                   sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV$mgi_symbol)
+
+
+uniqe_sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV <- sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol[!(sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol %in%sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV$mgi_symbol)]
+
+uniqe_sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV <- sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV$mgi_symbol[!(sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV$mgi_symbol %in%sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol)]
+
+uniqe_sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV <- sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV$mgi_symbol[!(sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV$mgi_symbol %in%sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol)]
+
+uniqe_sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV <- sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV$mgi_symbol[!(sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV$mgi_symbol %in%sig_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol)]
+
+uniqe_sig_diff_to_Ascl1_GFP <-list(uniqe_sig_diff_df_res_Ascl1_VPR_over_Empty_VPR_ASV,uniqe_sig_diff_df_res_Ascl1_p300_over_Empty_p300_ASV,uniqe_sig_diff_df_res_Ascl1_prdm9_over_Empty_prdm9_ASV)
+
+Venndiagram_compared_uniqe_sig_diff_to_Ascl1_GFP  <- ggVennDiagram(uniqe_sig_diff_to_Ascl1_GFP , category.names = c("VPR", "p300", "prdm9"), label="count", label_alpha = 0,
+                                                               label_size = 6,set_size = 5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black", "prdm9"="black"))+
+  theme_void()+ theme(legend.position = "none")
+
+
+```
+# get intersection between Ascl1-COFs over Empty_GFP to  over Empty-COFs 
+```{r}
+res_Empty_VPR_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_VPR_ASV", "Empty_GFP_ASV"), type="norm")
+
+res_Empty_p300_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_p300_ASV", "Empty_GFP_ASV"), type="norm")
+
+res_Empty_prdm9_ASV_over_Empty_GFP_induced  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Empty_prdm9_ASV", "Empty_GFP_ASV"), type="norm")
+
+
+df_res_Empty_VPR_over_Empty_GFP_ASV <- as.data.frame(res_Empty_VPR_ASV_over_Empty_GFP_induced )
+df_res_Empty_p300_over_Empty_GFP_ASV <- as.data.frame(res_Empty_p300_ASV_over_Empty_GFP_induced )
+df_res_Empty_prdm9_over_Empty_GFP_ASV <- as.data.frame(res_Empty_prdm9_ASV_over_Empty_GFP_induced )
+
+
+
+df_res_Empty_VPR_over_Empty_GFP_ASV_plot <- ggplot()+ geom_point(df_res_Empty_VPR_over_Empty_GFP_ASV ,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-VPR Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+df_res_Empty_p300_over_Empty_GFP_ASV_plot <- ggplot()+ geom_point(df_res_Empty_p300_over_Empty_GFP_ASV ,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-p300 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+df_res_Empty_prdm9_over_Empty_GFP_ASV_plot <- ggplot()+ geom_point(df_res_Empty_prdm9_over_Empty_GFP_ASV ,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Empty-prdm9 Induced / Empty-GFP Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+df_res_Empty_VPR_over_Empty_GFP_ASV_plot
+df_res_Empty_p300_over_Empty_GFP_ASV_plot
+df_res_Empty_prdm9_over_Empty_GFP_ASV_plot
+
+ggsave('../plots/res_Empty_VPR_over_Empty_GFP_ASV.png',df_res_Empty_VPR_over_Empty_GFP_ASV_plot,dpi=300)
+ggsave('../plots/res_Empty_p300_over_Empty_GFP_ASV.png',df_res_Empty_p300_over_Empty_GFP_ASV_plot,dpi=300)
+ggsave('../plots/res_Empty_prdm9_over_Empty_GFP_ASV.png',df_res_Empty_prdm9_over_Empty_GFP_ASV_plot,dpi=300)
+
+
+```
+
+
+# Venndiagram for COFs Empty to Empty-GFP
+
+```{r}
+sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV <- df_res_Empty_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV <- df_res_Empty_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV <- df_res_Empty_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05) %>%
+  rownames_to_column("mgi_symbol")
+
+
+all_diff_expressed_Empty_COFs_compared_Empty_GFP <-list(sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+ 
+
+
+
+Venndiagram_compared_Empty_GFP_Empty_COFs <- ggVennDiagram(all_diff_expressed_Empty_COFs_compared_Empty_GFP, category.names = c("Empty-\nVPR", "Empty-\np300","Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/Venndiagram_compared_Empty_GFP_Empty_COFs.png',Venndiagram_compared_Empty_GFP_Empty_COFs,dpi=300)
+```
+
+# Comparing uniqe set of genes in each COFs alone to Ascl1 COFs
+
+
+```{r}
+Venndiagram_compared_Empty_GFP_Empty_COFs 
+  
+
+ItemsList_Empty_COFs_compared_Empty_GFP <- venn(all_diff_expressed_Empty_COFs_compared_Empty_GFP, show.plot = FALSE, names = c("VPR", "p300","prdm9"))
+
+
+ItemsList_Empty_COFs_compared_Empty_GFP_VPR <- attributes(ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$VPR
+ItemsList_Empty_COFs_compared_Empty_GFP_p300 <- attributes(ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$p300
+ItemsList_Empty_COFs_compared_Empty_GFP_prdm9 <- attributes(ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$prdm9
+
+
+ItemsList_all_diff_expressed_compared_Empty_GFP<- venn(all_diff_expressed_compared_Empty_GFP, show.plot = FALSE, names = c("Ascl1","VPR", "p300","prdm9"))
+
+ItemsList_all_diff_expressed_compared_Empty_GFP_VPR <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$VPR
+ItemsList_all_diff_expressed_compared_Empty_GFP_p300 <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$p300
+ItemsList_all_diff_expressed_compared_Empty_GFP_prdm9 <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$prdm9
+ItemsList_all_diff_expressed_compared_Empty_GFP_Ascl1 <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$Ascl1
+
+
+
+
+p300 <-  intersect(ItemsList_all_diff_expressed_compared_Empty_GFP_p300,ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+prdm9 <- intersect(ItemsList_all_diff_expressed_compared_Empty_GFP_prdm9,ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+VPR <- intersect(ItemsList_all_diff_expressed_compared_Empty_GFP_VPR,ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+write.table(as.data.frame(p300), "../rscripts/p300.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(prdm9), "../rscripts/prdm9.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(ItemsList_all_diff_expressed_compared_Empty_GFP_Ascl1), "../rscripts/Ascl1.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+
+```
+
+
+get venn digram for genes uniqe to COFs alone or fused to Ascl1
+```{r}
+
+list(ItemsList_all_diff_expressed_compared_Empty_GFP_p300,ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+Venndiagram_compared_Ascl1_p300_Empty_p300 <- ggVennDiagram(list(ItemsList_all_diff_expressed_compared_Empty_GFP_p300,ItemsList_Empty_COFs_compared_Empty_GFP_p300), category.names = c("Ascl1-\np300", "Empty-\np300"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\np300" ="black","Empty-\np300" = 'black'))+
+  ggtitle("Uniquely differentially Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+
+Venndiagram_compared_Ascl1_prdm9_Empty_prdm9 <- ggVennDiagram(list(ItemsList_all_diff_expressed_compared_Empty_GFP_prdm9,ItemsList_Empty_COFs_compared_Empty_GFP_prdm9), category.names = c("Ascl1-\nprdm9", "Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely differentially Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ItemsList_all_diff_expressed_compared_Empty_GFP_Ascl1 # list with only Ascl1
+
+
+Venndiagram_compared_Ascl1_VPR_Empty_VPR <- ggVennDiagram(list(ItemsList_all_diff_expressed_compared_Empty_GFP_VPR,ItemsList_Empty_COFs_compared_Empty_GFP_VPR), category.names = c("Ascl1-\nVPR", "Empty-\nVPR"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely differentially Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+
+Venndiagram_compared_Ascl1_p300_Empty_p300
+Venndiagram_compared_Ascl1_prdm9_Empty_prdm9
+Venndiagram_compared_Ascl1_VPR_Empty_VPR
+
+ggsave('../plots/Venndiagram_compared_Ascl1_p300_Empty_p300.png', Venndiagram_compared_Ascl1_p300_Empty_p300, dpi=300)
+ggsave('../plots/Venndiagram_compared_Ascl1_prdm9_Empty_prdm9.png', Venndiagram_compared_Ascl1_prdm9_Empty_prdm9, dpi=300)
+ggsave('../plots/Venndiagram_compared_Ascl1_VPR_Empty_VPR.png', Venndiagram_compared_Ascl1_VPR_Empty_VPR, dpi=300)
+```
+
+# induced non-induced plots
+```{r}
+
+res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_VPR_ASV", "Ascl1_VPR_DMSO"), type="norm")
+
+res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_GFP_ASV", "Ascl1_GFP_DMSO"), type="norm")
+
+res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_p300_ASV", "Ascl1_p300_DMSO"), type="norm")
+
+res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO  <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_prdm9_ASV", "Ascl1_prdm9_DMSO"), type="norm")
+
+
+df_res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO <- as.data.frame(res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO)
+df_res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO <- as.data.frame(res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO)
+df_res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO  <- as.data.frame(res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO)
+df_res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO  <- as.data.frame(res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO)
+
+
+res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO_plot <- ggplot()+ geom_point(df_res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-VPR non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO_plot <- ggplot()+ geom_point(df_res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-GFP Induced / Ascl1-GFP non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO_plot <- ggplot()+ geom_point(df_res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-p300 Induced / Ascl1-p300 non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO_plot <- ggplot()+ geom_point(df_res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-prdm9 Induced / Ascl1-prdm9 non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-2,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+
+
+res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO_plot
+res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO_plot
+res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO_plot
+res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO_plot
+
+ggsave('../plots/res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO_plot.png',res_Ascl1_VPR_ASV_over_Ascl1_VPR_DMSO_plot,dpi=300)
+ggsave('../plots/res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO_plot.png',res_Ascl1_GFP_ASV_over_Ascl1_GFP_DMSO_plot,dpi=300)
+ggsave('../plots/res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO_plot.png',res_Ascl1_p300_ASV_over_Ascl1_p300_DMSO_plot,dpi=300)
+ggsave('../plots/res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO_plot.png',res_Ascl1_prdm9_ASV_over_Ascl1_prdm9_DMSO_plot,dpi=300)
+```
+
+# get uniquely diff. expressed genes for up regulated
+```{r}
+diff_expressed_genes_only_Ascl1_p300 <-setdiff(ItemsList_all_diff_expressed_compared_Empty_GFP_p300,ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+
+diff_expressed_genes_only_Empty_p300 <-setdiff(ItemsList_Empty_COFs_compared_Empty_GFP_p300,ItemsList_all_diff_expressed_compared_Empty_GFP_p300)
+
+
+
+diff_expressed_genes_only_Ascl1_prdm9 <-setdiff(ItemsList_all_diff_expressed_compared_Empty_GFP_prdm9,ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+
+diff_expressed_genes_only_Empty_prdm9 <-setdiff(ItemsList_Empty_COFs_compared_Empty_GFP_prdm9,ItemsList_all_diff_expressed_compared_Empty_GFP_prdm9)
+
+
+diff_expressed_genes_only_Ascl1_VPR <-setdiff(ItemsList_all_diff_expressed_compared_Empty_GFP_VPR,ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+diff_expressed_genes_only_Empty_VPR <-setdiff(ItemsList_Empty_COFs_compared_Empty_GFP_VPR,ItemsList_all_diff_expressed_compared_Empty_GFP_VPR)
+```
+
+
+# go enrichment
+
+```{r}
+
+GO_diff_expressed_genes_only_Ascl1_p300<- enrichGO(diff_expressed_genes_only_Ascl1_p300, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Ascl1_p300_plt <- dotplot(GO_diff_expressed_genes_only_Ascl1_p300, showCategory=10)+ ggtitle("Only Ascl1-p300")
+
+GO_diff_expressed_genes_only_Empty_p300<- enrichGO(diff_expressed_genes_only_Empty_p300, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Empty_p300_plt <- dotplot(GO_diff_expressed_genes_only_Empty_p300, showCategory=10)+ ggtitle("Only Empty-p300")
+
+GO_diff_expressed_genes_only_Ascl1_p300_plt
+GO_diff_expressed_genes_only_Empty_p300_plt
+```
+
+```{r}
+
+GO_diff_expressed_genes_only_Ascl1_prdm9<- enrichGO(diff_expressed_genes_only_Ascl1_prdm9, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Ascl1_prdm9_plt <- dotplot(GO_diff_expressed_genes_only_Ascl1_prdm9, showCategory=10)+ ggtitle("Only Ascl1-prdm9")
+
+GO_diff_expressed_genes_only_Empty_prdm9<- enrichGO(diff_expressed_genes_only_Empty_prdm9, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Empty_prdm9_plt <- dotplot(GO_diff_expressed_genes_only_Empty_prdm9, showCategory=10)+ ggtitle("Only Empty-prdm9")
+
+GO_diff_expressed_genes_only_Ascl1_prdm9_plt
+GO_diff_expressed_genes_only_Empty_prdm9_plt
+```
+
+
+```{r}
+
+GO_diff_expressed_genes_only_Ascl1_VPR<- enrichGO(diff_expressed_genes_only_Ascl1_VPR, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Ascl1_VPR_plt <- dotplot(GO_diff_expressed_genes_only_Ascl1_VPR, showCategory=10)+ ggtitle("Only Ascl1-VPR")
+
+GO_diff_expressed_genes_only_Empty_VPR<- enrichGO(diff_expressed_genes_only_Empty_VPR, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Empty_VPR_plt <- dotplot(GO_diff_expressed_genes_only_Empty_VPR, showCategory=10)+ ggtitle("Only Empty-VPR")
+
+GO_diff_expressed_genes_only_Ascl1_VPR_plt
+GO_diff_expressed_genes_only_Empty_VPR_plt
+```
+
+
+```{r}
+GO_diff_expressed_genes_only_Ascl1<- enrichGO(ItemsList_all_diff_expressed_compared_Empty_GFP_Ascl1, org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05, keyType = "SYMBOL")
+
+GO_diff_expressed_genes_only_Ascl1_plt <- dotplot(GO_diff_expressed_genes_only_Ascl1, showCategory=10)+ ggtitle("Only Ascl1")
+GO_diff_expressed_genes_only_Ascl1_plt
+```
+
+
+now for only up  or down regulated
+
+
+```{r}
+
+up_sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV <- df_res_Empty_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05 & log2FoldChange>0) %>%
+  rownames_to_column("mgi_symbol")
+
+up_sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV <- df_res_Empty_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange>0) %>%
+  rownames_to_column("mgi_symbol")
+
+up_sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV <- df_res_Empty_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange>0) %>%
+  rownames_to_column("mgi_symbol")
+
+
+up_diff_expressed_Empty_COFs_compared_Empty_GFP <-list(up_sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             up_sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             up_sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+ 
+
+
+
+up_Venndiagram_compared_Empty_GFP_Empty_COFs <- ggVennDiagram(up_diff_expressed_Empty_COFs_compared_Empty_GFP, category.names = c("Empty-\nVPR", "Empty-\np300","Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/up_Venndiagram_compared_Empty_GFP_Empty_COFs.png',up_Venndiagram_compared_Empty_GFP_Empty_COFs,dpi=300)
+
+
+
+down_sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV <- df_res_Empty_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05 & log2FoldChange<0) %>%
+  rownames_to_column("mgi_symbol")
+
+down_sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV <- df_res_Empty_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange<0) %>%
+  rownames_to_column("mgi_symbol")
+
+down_sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV <- df_res_Empty_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange<0) %>%
+  rownames_to_column("mgi_symbol")
+
+
+down_diff_expressed_Empty_COFs_compared_Empty_GFP <-list(down_sig_diff_df_res_Empty_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             down_sig_diff_df_res_Empty_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             down_sig_diff_df_res_Empty_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+ 
+
+
+
+down_Venndiagram_compared_Empty_GFP_Empty_COFs <- ggVennDiagram(down_diff_expressed_Empty_COFs_compared_Empty_GFP, category.names = c("Empty-\nVPR", "Empty-\np300","Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/down_Venndiagram_compared_Empty_GFP_Empty_COFs.png',down_Venndiagram_compared_Empty_GFP_Empty_COFs,dpi=300)
+
+
+
+up_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV <- df_res_Ascl1_GFP_over_Empty_GFP_ASV %>% filter(pvalue < 0.05 & log2FoldChange > 0) %>%
+  rownames_to_column("mgi_symbol")
+
+up_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV <- df_res_Ascl1_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange > 0) %>%
+  rownames_to_column("mgi_symbol")
+
+up_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV <- df_res_Ascl1_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange > 0) %>%
+  rownames_to_column("mgi_symbol")
+
+up_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV <- df_res_Ascl1_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange > 0) %>%
+  rownames_to_column("mgi_symbol")
+
+
+up_diff_expressed_compared_Empty_GFP <-list(up_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                             up_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             up_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             up_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+ 
+
+
+
+down_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV <- df_res_Ascl1_GFP_over_Empty_GFP_ASV %>% filter(pvalue < 0.05 & log2FoldChange < 0) %>%
+  rownames_to_column("mgi_symbol")
+
+down_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV <- df_res_Ascl1_VPR_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange < 0) %>%
+  rownames_to_column("mgi_symbol")
+
+down_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV <- df_res_Ascl1_p300_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange < 0) %>%
+  rownames_to_column("mgi_symbol")
+
+down_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV <- df_res_Ascl1_prdm9_over_Empty_GFP_ASV %>% filter(pvalue < 0.05& log2FoldChange < 0) %>%
+  rownames_to_column("mgi_symbol")
+
+
+down_diff_expressed_compared_Empty_GFP <-list(down_diff_df_res_Ascl1_GFP_over_Empty_GFP_ASV$mgi_symbol,
+                                             down_diff_df_res_Ascl1_VPR_over_Empty_GFP_ASV$mgi_symbol,
+                                             down_diff_df_res_Ascl1_p300_over_Empty_GFP_ASV$mgi_symbol,
+                                             down_diff_df_res_Ascl1_prdm9_over_Empty_GFP_ASV$mgi_symbol)
+
+
+
+up_Venndiagram_compared_Empty_GFP <- ggVennDiagram(up_diff_expressed_compared_Empty_GFP, category.names = c("Ascl1-\nGFP", "Ascl1-\nVPR", "Ascl1-\np300","Ascl1-\nprdm9"), label="count", label_alpha = 0,label_size = 6,set_size = 4.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/up_Venndiagram_compared_Empty_GFP.png',up_Venndiagram_compared_Empty_GFP,dpi=300)
+
+
+down_Venndiagram_compared_Empty_GFP <- ggVennDiagram(down_diff_expressed_compared_Empty_GFP, category.names = c("Ascl1-\nGFP", "Ascl1-\nVPR", "Ascl1-\np300","Ascl1-\nprdm9"), label="count", label_alpha = 0,label_size = 6,set_size = 4.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("GFP" = "black","VPR" ="black",'p300' = 'black', 'prdm9' = 'black'))+
+  ggtitle("Differentialy Exressed compared to Empty-GFP")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ggsave('../plots/down_Venndiagram_compared_Empty_GFP.png',down_Venndiagram_compared_Empty_GFP,dpi=300)
+
+down_Venndiagram_compared_Empty_GFP 
+up_Venndiagram_compared_Empty_GFP 
+```
+
+
+
+
+
+```{r}
+######
+
+up_ItemsList_Empty_COFs_compared_Empty_GFP <- venn(up_diff_expressed_Empty_COFs_compared_Empty_GFP, show.plot = FALSE, names = c("VPR", "p300","prdm9"))
+
+
+up_ItemsList_Empty_COFs_compared_Empty_GFP_VPR <- attributes(up_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$VPR
+up_ItemsList_Empty_COFs_compared_Empty_GFP_p300 <- attributes(up_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$p300
+up_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9 <- attributes(up_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$prdm9
+
+
+up_ItemsList_all_diff_expressed_compared_Empty_GFP<- venn(up_diff_expressed_compared_Empty_GFP, show.plot = FALSE, names = c("Ascl1","VPR", "p300","prdm9"))
+
+ItemsList_up_diff_expressed_compared_Empty_GFP_VPR <- attributes(up_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$VPR
+ItemsList_up_diff_expressed_compared_Empty_GFP_p300 <- attributes(up_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$p300
+ItemsList_up_diff_expressed_compared_Empty_GFP_prdm9 <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$prdm9
+ItemsList_up_diff_expressed_compared_Empty_GFP_Ascl1 <- attributes(ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$Ascl1
+
+
+
+
+up_p300 <-  intersect(ItemsList_up_diff_expressed_compared_Empty_GFP_p300,up_ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+up_prdm9 <- intersect(ItemsList_up_diff_expressed_compared_Empty_GFP_prdm9,up_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+up_VPR <- intersect(ItemsList_up_diff_expressed_compared_Empty_GFP_VPR,up_ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+write.table(as.data.frame(up_p300), "../rscripts/up_p300.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(up_prdm9), "../rscripts/up_prdm9.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(ItemsList_up_diff_expressed_compared_Empty_GFP_Ascl1), "../rscripts/up_Ascl1.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+```
+
+
+
+
+```{r}
+######
+
+down_ItemsList_Empty_COFs_compared_Empty_GFP <- venn(down_diff_expressed_Empty_COFs_compared_Empty_GFP, show.plot = FALSE, names = c("VPR", "p300","prdm9"))
+
+
+down_ItemsList_Empty_COFs_compared_Empty_GFP_VPR <- attributes(down_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$VPR
+down_ItemsList_Empty_COFs_compared_Empty_GFP_p300 <- attributes(down_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$p300
+down_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9 <- attributes(down_ItemsList_Empty_COFs_compared_Empty_GFP)$intersections$prdm9
+
+
+down_ItemsList_all_diff_expressed_compared_Empty_GFP<- venn(down_diff_expressed_compared_Empty_GFP, show.plot = FALSE, names = c("Ascl1","VPR", "p300","prdm9"))
+
+ItemsList_down_diff_expressed_compared_Empty_GFP_VPR <- attributes(down_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$VPR
+ItemsList_down_diff_expressed_compared_Empty_GFP_p300 <- attributes(down_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$p300
+ItemsList_down_diff_expressed_compared_Empty_GFP_prdm9 <- attributes(down_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$prdm9
+ItemsList_down_diff_expressed_compared_Empty_GFP_Ascl1 <- attributes(down_ItemsList_all_diff_expressed_compared_Empty_GFP)$intersections$Ascl1
+
+
+
+
+down_p300 <-  intersect(ItemsList_down_diff_expressed_compared_Empty_GFP_p300,down_ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+down_prdm9 <- intersect(ItemsList_down_diff_expressed_compared_Empty_GFP_prdm9,down_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+down_VPR <- intersect(ItemsList_down_diff_expressed_compared_Empty_GFP_VPR,down_ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+write.table(as.data.frame(down_p300), "../rscripts/down_p300.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(down_prdm9), "../rscripts/down_prdm9.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+write.table(as.data.frame(ItemsList_down_diff_expressed_compared_Empty_GFP_Ascl1), "../rscripts/down_Ascl1.txt",row.names = FALSE, col.names = FALSE, quote = FALSE, sep = "\t")
+```
+
+```{r}
+
+
+up_Venndiagram_compared_Ascl1_p300_Empty_p300 <- ggVennDiagram(list(ItemsList_up_diff_expressed_compared_Empty_GFP_p300,up_ItemsList_Empty_COFs_compared_Empty_GFP_p300), category.names = c("Ascl1-\np300", "Empty-\np300"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\np300" ="black","Empty-\np300" = 'black'))+
+  ggtitle("Uniquely up-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+
+up_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9 <- ggVennDiagram(list(ItemsList_up_diff_expressed_compared_Empty_GFP_prdm9,up_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9), category.names = c("Ascl1-\nprdm9", "Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely up-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+up_ItemsList_all_diff_expressed_compared_Empty_GFP_Ascl1 # list with only Ascl1
+
+
+up_Venndiagram_compared_Ascl1_VPR_Empty_VPR <- ggVennDiagram(list(ItemsList_up_diff_expressed_compared_Empty_GFP_VPR,up_ItemsList_Empty_COFs_compared_Empty_GFP_VPR), category.names = c("Ascl1-\nVPR", "Empty-\nVPR"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely up-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+
+up_Venndiagram_compared_Ascl1_p300_Empty_p300
+up_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9
+up_Venndiagram_compared_Ascl1_VPR_Empty_VPR
+
+ggsave('../plots/up_Venndiagram_compared_Ascl1_p300_Empty_p300.png', up_Venndiagram_compared_Ascl1_p300_Empty_p300, dpi=300)
+ggsave('../plots/up_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9.png', up_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9, dpi=300)
+ggsave('../plots/up_Venndiagram_compared_Ascl1_VPR_Empty_VPR.png', up_Venndiagram_compared_Ascl1_VPR_Empty_VPR, dpi=300)
+```
+
+```{r}
+
+
+down_Venndiagram_compared_Ascl1_p300_Empty_p300 <- ggVennDiagram(list(ItemsList_down_diff_expressed_compared_Empty_GFP_p300,down_ItemsList_Empty_COFs_compared_Empty_GFP_p300), category.names = c("Ascl1-\np300", "Empty-\np300"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\np300" ="black","Empty-\np300" = 'black'))+
+  ggtitle("Uniquely down-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+
+down_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9 <- ggVennDiagram(list(ItemsList_down_diff_expressed_compared_Empty_GFP_prdm9,down_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9), category.names = c("Ascl1-\nprdm9", "Empty-\nprdm9"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely down-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+ItemsList_down_diff_expressed_compared_Empty_GFP_Ascl1 # list with only Ascl1
+
+
+down_Venndiagram_compared_Ascl1_VPR_Empty_VPR <- ggVennDiagram(list(ItemsList_down_diff_expressed_compared_Empty_GFP_VPR,down_ItemsList_Empty_COFs_compared_Empty_GFP_VPR), category.names = c("Ascl1-\nVPR", "Empty-\nVPR"), label="count", label_alpha = 0,label_size = 5,set_size = 3.5) + 
+  scale_fill_gradient(low = "white", high = "red") +
+  scale_color_manual(values = c("Ascl1-\nprdm9" ="black","Empty-\nprdm9" = 'black'))+
+  ggtitle("Uniquely down-regulated Expressed Genes")+
+  theme_void()+ 
+  theme(legend.position = "none", plot.title=element_text(size=16,face="bold"))
+
+
+down_Venndiagram_compared_Ascl1_p300_Empty_p300
+down_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9
+down_Venndiagram_compared_Ascl1_VPR_Empty_VPR
+
+ggsave('../plots/down_Venndiagram_compared_Ascl1_p300_Empty_p300.png', down_Venndiagram_compared_Ascl1_p300_Empty_p300, dpi=300)
+ggsave('../plots/down_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9.png', down_Venndiagram_compared_Ascl1_prdm9_Empty_prdm9, dpi=300)
+ggsave('../plots/down_Venndiagram_compared_Ascl1_VPR_Empty_VPR.png', down_Venndiagram_compared_Ascl1_VPR_Empty_VPR, dpi=300)
+```
+
+# get uniquely diff. expressed genes for up regulated
+```{r}
+up_diff_expressed_genes_only_Ascl1_p300 <-setdiff(ItemsList_up_diff_expressed_compared_Empty_GFP_p300,up_ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+
+up_diff_expressed_genes_only_Empty_p300 <-setdiff(up_ItemsList_Empty_COFs_compared_Empty_GFP_p300,ItemsList_up_diff_expressed_compared_Empty_GFP_p300)
+
+
+
+up_diff_expressed_genes_only_Ascl1_prdm9 <-setdiff(ItemsList_up_diff_expressed_compared_Empty_GFP_prdm9,up_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+
+up_diff_expressed_genes_only_Empty_prdm9 <-setdiff(up_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9,ItemsList_up_diff_expressed_compared_Empty_GFP_prdm9)
+
+
+up_diff_expressed_genes_only_Ascl1_VPR <-setdiff(ItemsList_up_diff_expressed_compared_Empty_GFP_VPR,up_ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+up_diff_expressed_genes_only_Empty_VPR <-setdiff(up_ItemsList_Empty_COFs_compared_Empty_GFP_VPR,ItemsList_up_diff_expressed_compared_Empty_GFP_VPR)
+```
+
+
+# get uniquely diff. expressed genes for up regulated
+```{r}
+down_diff_expressed_genes_only_Ascl1_p300 <-setdiff(ItemsList_down_diff_expressed_compared_Empty_GFP_p300,down_ItemsList_Empty_COFs_compared_Empty_GFP_p300)
+
+down_diff_expressed_genes_only_Empty_p300 <-setdiff(down_ItemsList_Empty_COFs_compared_Empty_GFP_p300,ItemsList_down_diff_expressed_compared_Empty_GFP_p300)
+
+
+down_diff_expressed_genes_only_Ascl1_prdm9 <-setdiff(ItemsList_down_diff_expressed_compared_Empty_GFP_prdm9,down_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9)
+
+down_diff_expressed_genes_only_Empty_prdm9 <-setdiff(down_ItemsList_Empty_COFs_compared_Empty_GFP_prdm9,ItemsList_down_diff_expressed_compared_Empty_GFP_prdm9)
+
+
+down_diff_expressed_genes_only_Ascl1_VPR <-setdiff(ItemsList_down_diff_expressed_compared_Empty_GFP_VPR,down_ItemsList_Empty_COFs_compared_Empty_GFP_VPR)
+
+down_diff_expressed_genes_only_Empty_VPR <-setdiff(down_ItemsList_Empty_COFs_compared_Empty_GFP_VPR,ItemsList_down_diff_expressed_compared_Empty_GFP_VPR)
+```
+
+
+
+scatterplot 
+
+```{r}
+
+
+
+
+```
+

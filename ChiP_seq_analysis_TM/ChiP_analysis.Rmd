@@ -1,0 +1,792 @@
+---
+gettitle: "ChiP_seq_analysis_TM"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+setwd('/home/ubuntu/MOUNT3/angela/ChiP_seq_analysis_TM/')
+```
+
+
+## Packages
+```{r echo=FALSE}
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(circlize)
+library(GenomicAlignments)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(ChIPpeakAnno)
+library(ReactomePA)
+library(tibble)
+library(ggpubr)
+library(DiffBind)
+library(org.Mm.eg.db)
+library(diffloop)
+library(ggrepel)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+sessionInfo()
+```
+
+# To run the nexflow ChiP-seq
+nextflow run nf-core/chipseq -r 2.0.0 -profile docker --input /home/ubuntu/MOUNT3/angela/intro_to_HPC_and_NF/sample_file_DBD_chipseq.csv --outdir /home/ubuntu/MOUNT3/angela/intro_to_HPC_and_NF/nextflow_output/ --genome mm10 --read_length 50
+
+```{r}
+
+data_path <- '/home/ubuntu/MOUNT3/angela/intro_to_HPC_and_NF/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/'
+
+
+peak_files = list.files(
+    path       = data_path, 
+    full.names = TRUE, 
+    pattern    = 'broadPeak$'
+)
+names(peak_files) <- c('Pax4','Pax6','Ascl1','NeuroD1')
+peak_Pax4 <- readPeakFile(peak_files[[1]], as= 'GRanges')
+peak_Pax6 <- readPeakFile(peak_files[[2]], as= 'GRanges')
+peak_Ascl1 <- readPeakFile(peak_files[[3]], as= 'GRanges')
+peak_NeuroD1 <- readPeakFile(peak_files[[4]], as= 'GRanges')
+
+save(peak_Ascl1, file="Ascl1_peaks.RData")
+
+```
+
+
+```{r}
+#the peak locations over the whole genome
+
+covplot(peak_Pax4, weightCol="X1.28013")
+
+```
+
+
+
+```{r}
+#get promoter regions
+promoter <- getPromoters(TxDb=txdb, upstream=2000, downstream=200)
+
+# overlay promoter with peaks
+tagMatrix_Ascl1 <- getTagMatrix(peak_Ascl1, windows=promoter)
+tagMatrix_NeuroD1 <- getTagMatrix(peak_NeuroD1, windows=promoter)
+tagMatrix_Pax6 <- getTagMatrix(peak_Pax6, windows=promoter)
+tagMatrix_Pax4 <- getTagMatrix(peak_Pax4, windows=promoter)
+
+plotAvgProf(tagMatrix_Ascl1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_NeuroD1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+plotAvgProf(tagMatrix_Pax4, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_Pax6, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+
+```
+
+
+
+```{r}
+
+# annotate peaks
+
+peakAnno_Ascl1 <- annotatePeak(peak_files[[3]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+peakAnno_NeuroD1 <- annotatePeak(peak_files[[4]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+peakAnno_Pax4 <- annotatePeak(peak_files[[1]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+peakAnno_Pax6 <- annotatePeak(peak_files[[2]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+
+plotAnnoPie(peakAnno_Ascl1)
+plotAnnoPie(peakAnno_NeuroD1)
+plotAnnoPie(peakAnno_Pax4)
+plotAnnoPie(peakAnno_Pax6)
+
+
+
+
+```
+
+```{r}
+# to compare for all of them
+
+tagMatrixList <- lapply(peak_files, getTagMatrix, windows=promoter)
+
+plotAvgProf(tagMatrixList, xlim=c(-2000, 200), conf=0.95,resample=500, facet="row")
+
+
+
+````
+
+```{r}
+peakAnnoList <- lapply(peak_files, annotatePeak, TxDb=txdb,
+                       tssRegion=c(-2000, 200), verbose=FALSE)
+
+gene <- seq2gene(peak_Ascl1, tssRegion = c(-2000, 200), flankDistance = 3000, TxDb=txdb)
+gene_NeuroD1 <- seq2gene(peak_NeuroD1, tssRegion = c(-2000, 200), flankDistance = 3000, TxDb=txdb)
+
+Ascl1_MF <- enrichGO(gene,org.Mm.eg.db,ont="MF")
+NeuroD1_MF <- enrichGO(gene_NeuroD1,org.Mm.eg.db,ont="MF")
+
+dotplot(Ascl1_MF)
+dotplot(NeuroD1_MF )
+
+plotAnnoBar(peakAnnoList)
+
+#to extract for each DBD
+#g <- as.vector(unique(as.data.frame(peakAnnoList$Pax4)$geneId))
+
+genes = lapply(peakAnnoList, function(i) as.data.frame(i)$geneId)
+
+compKEGG <- compareCluster(geneCluster   = genes,
+                         fun           = "enrichKEGG",
+                         pvalueCutoff  = 0.05,
+                         organism = "mmu")
+
+compGO <- compareCluster(geneCluster   = genes,
+                         OrgDb = org.Mm.eg.db,
+                         fun           = "enrichGO",
+                         pvalueCutoff  = 0.05,
+                         ont="MF")
+
+dotplot(compKEGG, showCategory = 10, title = "KEGG Enrichment Analysis")
+
+dotplot(compGO, showCategory = 20, title = "GO Enrichment Analysis")
+````
+
+```{r}
+# 
+dd_peakAnnoList_Ascl1 <- as.data.frame(peakAnnoList$Ascl1)
+g <- unique(dd_peakAnnoList_Ascl1$geneId)
+length(g)
+
+g_entrez <- as.data.frame(AnnotationDbi::mapIds(org.Mm.eg.db, keys =g ,
+       column = "SYMBOL", keytype = "ENTREZID"))
+g_entrez <- g_entrez %>% rownames_to_column()
+
+colnames(g_entrez) <- c('entrez','geneId')
+m <- match(dd_peakAnnoList_Ascl1$geneId, g_entrez$entrez)
+
+dd_peakAnnoList_Ascl1  <- cbind(dd_peakAnnoList_Ascl1 [,1:14], geneSymbol=g_entrez$geneId[m], dd_peakAnnoList_Ascl1[,15:16])
+
+````
+
+
+
+```{r}
+# extract gene EntredID of peaks for Ascl1 and NueroD1 to compare with RNAseq
+
+
+genes_Ascl1 <- unique(as.data.frame(peakAnnoList$Ascl1)$geneId)
+genes_NeuroD1 <- unique(as.data.frame(peakAnnoList$NeuroD1)$geneId)
+write.table(as.data.frame(genes_Ascl1),file="genes_Ascl1.csv", quote=F,sep=",",row.names=F)
+write.table(as.data.frame(genes_NeuroD1),file="genes_NeuroD1.csv", quote=F,sep=",",row.names=F)
+
+````
+
+```{r}
+Ascl1_ASV_over_DMSO_motif_presence <- read.csv("/home/ubuntu/MOUNT3/angela/ChiP_seq_analysis_TM/Ascl1_ASV_over_DMSO_motif_presence.tsv", sep="")
+
+library(org.Mm.eg.db)
+
+gene_sybols_Ascl1 <- rownames(Ascl1_ASV_over_DMSO_motif_presence)
+str(gene_sybols_Ascl1)
+genes_Ascl1_Symbols <- AnnotationDbi::mapIds(org.Mm.eg.db, keys =genes_Ascl1 ,
+       column = "SYMBOL", keytype = "ENTREZID")
+
+write.table(as.data.frame(genes_Ascl1_Symbols),file="genes_Ascl1_Symbols.csv", quote=F,sep=",",row.names=F)
+
+
+sel <- dplyr::filter(Ascl1_ASV_over_DMSO_motif_presence, rownames(Ascl1_ASV_over_DMSO_motif_presence) %in% genes_Ascl1_Symbols)
+sel <- sel %>% drop_na()
+
+sel$Ascl1_motif <- as.factor(sel$Ascl1_motif)
+
+sel <- filter(sel, sel$log2FoldChange >1)
+Ascl1_ASV_over_DMSO_motif_presence 
+Ascl1_ASV_over_DMSO_motif_presence$ChiP <- NA
+Ascl1_ASV_over_DMSO_motif_presence[rownames(Ascl1_ASV_over_DMSO_motif_presence) %in% genes_Ascl1_Symbols,]$ChiP <-1
+Ascl1_ASV_over_DMSO_motif_presence[!rownames(Ascl1_ASV_over_DMSO_motif_presence) %in% genes_Ascl1_Symbols,]$ChiP <-0
+Ascl1_ASV_over_DMSO_motif_presence[Ascl1_ASV_over_DMSO_motif_presence$ChiP == 1,]$ChiP <-0
+sum(is.na(Ascl1_ASV_over_DMSO_motif_presence$Ascl1_motif))
+
+Ascl1_ASV_over_DMSO_motif_presence$Ascl1_motif <- as.factor(Ascl1_ASV_over_DMSO_motif_presence$Ascl1_motif)
+Ascl1_ASV_over_DMSO_motif_presence$ChiP <-  as.factor(Ascl1_ASV_over_DMSO_motif_presence$ChiP)
+
+
+
+ggplot(sel)+ geom_bar(aes(x=Ascl1_motif))
+ggplot(Ascl1_ASV_over_DMSO_motif_presence)+ geom_bar(aes(x=Ascl1_motif))
+
+
+ Ascl1_plot_chip<- ggplot()+ geom_point(Ascl1_ASV_over_DMSO_motif_presence,
+                                        mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= ChiP), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Ascl1 DMSO non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('ChiP data'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+ 
+ 
+  Ascl1_plot_motif<- ggplot()+ geom_point(Ascl1_ASV_over_DMSO_motif_presence,
+                                          mapping= aes(x = log2(baseMean), y= log2FoldChange,color= Ascl1_motif), cex = 0.7) + 
+  ggtitle('Ascl1 ASV induced / Ascl1 DMSO non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+ 
+ Ascl1_plot_chip
+ Ascl1_plot_motif
+
+ 
+Ascl1_plot_motif_Chip<- ggplot()+ geom_point(Ascl1_ASV_over_DMSO_motif_presence[Ascl1_ASV_over_DMSO_motif_presence$ChiP==1,],
+                                             mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= Ascl1_motif), cex = 0.7) +
+  labs(title="Ascl1 ASV induced / Ascl1 DMSO non-Induced \n (present in ChiP data)")+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('Ascl1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+
+
+tiff("Ascl1_induced_in_Chip_data.tiff",compression = "zip")
+Ascl1_plot_chip
+dev.off()
+
+
+tiff("Ascl1_motif_in_Chip.tiff",compression = "zip")
+Ascl1_plot_chip
+dev.off()
+
+Ascl1_plot_chip
+Ascl1_plot_motif
+Ascl1_plot_motif_Chip
+
+````
+
+```{r}
+### hypergeometrical test
+merged.gene_tpm <- read.delim("salmon.merged.gene_tpm.tsv")
+
+merged.gene_tpm <- column_to_rownames(merged.gene_tpm, var= 'gene_id')
+
+merged.gene_tpm_ascl1 <-select(merged.gene_tpm,'Ascl1_ASV_REP1','Ascl1_ASV_REP2','Ascl1_ASV_REP3','Ascl1_nonInduced_REP1',
+                                                  'Ascl1_nonInduced_REP2','Ascl1_nonInduced_REP3')
+                               
+merged.gene_tpm_ascl1$row_mean <- rowMeans(merged.gene_tpm_ascl1 , na.rm=TRUE)
+filtered_merged.gene_tpm_ascl1 <- filter(merged.gene_tpm_ascl1, row_mean > 5)
+genes <- as.data.frame(rownames(filtered_merged.gene_tpm_ascl1))
+
+colnames(genes) <- c('mgi_symbol')
+
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+biomart_info_all_Ascl1<- getBM(
+  attributes = c('ensembl_gene_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = genes$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+ucsc_mm10 <- TxDb.Mmusculus.UCSC.mm10.knownGene
+
+
+p <- promoters(genes(ucsc_mm10), upstream = 2000, downstream = 200)
+
+list.expr_genes_Ascl1_all_genes <-unique(biomart_info_all_Ascl1$entrezgene_id)
+GR.list.expr_genes_Ascl1_all_genes<- p[(elementMetadata(p)[,1] %in% list.expr_genes_Ascl1_all_genes)]
+seq.GR.list.expr_genes_Ascl1_all_genes <- getSeq(BSgenome.Mmusculus.UCSC.mm10, GR.list.expr_genes_Ascl1_all_genes)
+head(seq.GR.list.expr_genes_Ascl1_all_genes,20 )
+
+pfms_A1 <- getMatrixByID(JASPAR2020, c("MA1100.1"))
+pfms_A1  <- toPWM(pfms_A1)
+
+siteset_Ascl1_all <- searchSeq(pfms_A1 , seq.GR.list.expr_genes_Ascl1_all_genes, strand = '+',min.score="80%")
+
+siteset_Ascl1_all  <- as(siteset_Ascl1_all , "data.frame")
+length(unique(siteset_Ascl1_all$seqnames))
+length(seq.GR.list.expr_genes_Ascl1_all_genes)
+
+
+genes_ES <- length(unique(rownames(filtered_merged.gene_tpm_ascl1)))## amount of genes activ in ES
+
+genes_ES_Ascl1 <- length(unique(siteset_Ascl1_all$seqnames)) ## amount of ES genes with Ascl1 motif
+
+diff_expressed_genes_w_ascl1<- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, 
+                                           Ascl1_motif== 1 & abs(log2FoldChange) > 1)) # DE genes with Ascl1
+
+diff_expressed_genes <- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, abs(log2FoldChange) > 1))# DE genes 
+
+
+up_expressed_genes_w_ascl1<- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, 
+                                           Ascl1_motif== 1 & log2FoldChange > 1))
+                                  
+up_expressed_genes <- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, log2FoldChange > 1))
+
+
+down_expressed_genes_w_ascl1<- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, 
+                                           Ascl1_motif== 1 & log2FoldChange < 1))
+                                  
+down_expressed_genes <- nrow(filter(Ascl1_ASV_over_DMSO_motif_presence, log2FoldChange < -1))
+
+
+
+pvalues <-data.frame('condition' = c('diff. expressed', 'overexpressed','underexpressed'), 'pvalue' = c(0.11,0.06,0.5))
+
+pvalues$condition <- as.factor(pvalues$condition)
+
+pvalue_plot <- ggplot(pvalues, aes(x = condition, y = pvalue)) +
+  geom_bar(stat = "identity",colour="black", fill='grey') +  geom_text(aes(label = paste0(round(pvalue,3)), y= pvalue),  vjust = 3)+ theme_classic2()+
+  xlab(' ')+ ylab('p-value') + ggtitle('Ascl1 motif in Ascl1/StaPL RNAseq data')
+
+tiff("motif_emnrichment_pvalues.tiff",compression = "zip")
+pvalue_plot 
+dev.off()
+
+````
+
+```{r}
+
+# genes in ChiP data and ascl1 motif
+
+data_chip_motif <- filter(Ascl1_ASV_over_DMSO_motif_presence, Ascl1_ASV_over_DMSO_motif_presence$Ascl1_motif==1 & Ascl1_ASV_over_DMSO_motif_presence$ChiP ==1)
+
+dd <- filter(Ascl1_ASV_over_DMSO_motif_presence, Ascl1_ASV_over_DMSO_motif_presence$ChiP ==1)
+nrow(dd)
+
+# look at the most upregulated genes present also in ChIP
+sorted_data_chip_motif <- data_chip_motif%>% arrange(desc(log2FoldChange))
+
+data_chip_no_motif <- filter(Ascl1_ASV_over_DMSO_motif_presence, Ascl1_ASV_over_DMSO_motif_presence$Ascl1_motif==0 & Ascl1_ASV_over_DMSO_motif_presence$ChiP ==1)
+
+data_chip_motif_sign<- data_chip_motif %>% filter(log2FoldChange>1)
+
+write.table(t(rownames(data_chip_motif_sign)), file = 'genes_present_ChiP_Ascl1_motif.txt', sep = " ",quote = FALSE, col.names = TRUE, row.name = FALSE)
+
+nrow(data_chip_motif)
+nrow(data_chip_no_motif)
+colnames(Ascl1_ASV_over_DMSO_motif_presence)
+dd <- select(Ascl1_ASV_over_DMSO_motif_presence, c("SYMBOL","Ascl1_motif" ,"ChiP" ,"baseMean", "log2FoldChange"))
+
+diff_expr_dd <- dd %>% filter(abs(log2FoldChange)>1)
+
+dd_comp_motif_ChIP <-  diff_expr_dd  %>% group_by(Ascl1_motif,ChiP) %>% summarise('N_genes' = n(),'percentage' =n()/nrow(over_expr_dd)*100)
+
+
+
+dd_comp_motif_ChIP$Category <- c('not in ChIP data/no Ascl1 motif', 'ChIP data/no Ascl1 motif', 'not in ChIP data/Ascl1 motif', 'ChIP data/Ascl1 motif')
+
+
+
+ps <- c(99,94,88,41)
+
+pie_all<- ggplot(dd_comp_motif_ChIP, aes(x = "" , y = percentage, fill = fct_inorder(Category))) +
+  geom_col(width = 1, color = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(aes(y = ps, label = paste0(round(percentage,2), "%")),
+                   size = 4, nudge_x = 2,nudge_y=-2, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Overexpressed genes vs. ChIP data")) +
+  theme_void()+ ggtitle('differentially expressed genes')
+
+
+
+
+over_expr_dd <- dd %>% filter(log2FoldChange>1)
+
+dd_comp_motif_ChIP_over <-  over_expr_dd %>% group_by(Ascl1_motif,ChiP) %>% summarise('N_genes' = n(),'percentage' =n()/nrow(over_expr_dd)*100)
+
+
+dd_comp_motif_ChIP_over$Category <- c('not in ChIP data/no Ascl1 motif', 'ChIP data/no Ascl1 motif', 'not in ChIP data/Ascl1 motif', 'ChIP data/Ascl1 motif')
+ps2<- c(99,95.5,88,41)
+
+pie_over<- ggplot(dd_comp_motif_ChIP_over, aes(x = "" , y = percentage, fill = fct_inorder(Category))) +
+  geom_col(width = 1, color = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(aes(y = ps2, label = paste0(round(percentage,2), "%")),
+                   size = 4, nudge_x = 2,nudge_y=-2, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Overexpressed genes vs. ChIP data")) +
+  theme_void()+ ggtitle('overexpressed genes')
+
+
+
+under_expr_dd <- dd %>% filter(log2FoldChange< -1)
+
+dd_comp_motif_ChIP_under <-  under_expr_dd  %>% group_by(Ascl1_motif,ChiP) %>% summarise('N_genes' = n(),'percentage' =n()/nrow(under_expr_dd)*100)
+
+
+dd_comp_motif_ChIP_under$Category <- c('not in ChIP data/no Ascl1 motif', 'ChIP data/no Ascl1 motif', 'not in ChIP data/Ascl1 motif', 'ChIP data/Ascl1 motif')
+ps3<- c(99,93,83.5,41)
+
+pie_under<- ggplot(dd_comp_motif_ChIP_under, aes(x = "" , y = percentage, fill = fct_inorder(Category))) +
+  geom_col(width = 1, color = 1) +
+  coord_polar(theta = "y") +
+  scale_fill_brewer(palette = "Pastel1") +
+  geom_label_repel(aes(y = ps3, label = paste0(round(percentage,2), "%")),
+                   size = 4, nudge_x = 2,nudge_y=-2, show.legend = FALSE) +
+  guides(fill = guide_legend(title = "Overexpressed genes vs. ChIP data")) +
+  theme_void()+ ggtitle('underexpressed genes')
+
+
+tiff("Pie_chart_genes_2.tiff",compression = "zip")
+pie 
+dev.off()
+
+pie_all
+pie_over
+pie_under
+
+tiff("piechart_diff_expressed.tiff",compression = "zip")
+pie_all
+dev.off()
+
+tiff("piechart_over_expressed.tiff",compression = "zip")
+pie_over
+dev.off()
+
+tiff("piechart_under_expressed.tiff",compression = "zip")
+pie_under
+dev.off()
+
+
+
+````
+
+```{r}
+
+Pax4 <- toGRanges(peak_files[1], format="broadPeak", header=FALSE) 
+Pax6 <- toGRanges(peak_files[2], format="broadPeak", header=FALSE) 
+Ascl1 <- toGRanges(peak_files[3], format="broadPeak", header=FALSE) 
+NeuroD1 <- toGRanges(peak_files[4], format="broadPeak", header=FALSE) 
+
+````
+
+```{r}
+# same for NeuroD1
+
+NeuroD1_ASV_over_DMSO_motif_presence <- read.csv("/home/ubuntu/MOUNT3/angela/ChiP_seq_analysis_TM/NeuroD1_ASV_over_DMSO_motif_presence.tsv", sep="")
+
+
+gene_sybols_NeuroD1 <- rownames(NeuroD1_ASV_over_DMSO_motif_presence)
+
+genes_NeuroD1_Symbols <- AnnotationDbi::mapIds(org.Mm.eg.db, keys =genes_NeuroD1 ,
+       column = "SYMBOL", keytype = "ENTREZID")
+
+
+NeuroD1_ASV_over_DMSO_motif_presence$ChiP <- NA
+NeuroD1_ASV_over_DMSO_motif_presence[rownames(NeuroD1_ASV_over_DMSO_motif_presence) %in% genes_NeuroD1_Symbols,]$ChiP <-1
+NeuroD1_ASV_over_DMSO_motif_presence[!rownames(NeuroD1_ASV_over_DMSO_motif_presence) %in% genes_NeuroD1_Symbols,]$ChiP <-0
+
+
+NeuroD1_ASV_over_DMSO_motif_presence$NeuroD1_motif <- as.factor(NeuroD1_ASV_over_DMSO_motif_presence$NeuroD1_motif)
+NeuroD1_ASV_over_DMSO_motif_presence$ChiP <-  as.factor(NeuroD1_ASV_over_DMSO_motif_presence$ChiP)
+
+
+
+ NeuroD1_plot_chip<- ggplot()+ geom_point(NeuroD1_ASV_over_DMSO_motif_presence,
+                                        mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= ChiP), cex = 0.7) + 
+  ggtitle('NeuroD1 ASV induced / NeuroD1 DMSO non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('ChiP data'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+ 
+ 
+  NeuroD1_plot_motif<- ggplot()+ geom_point(NeuroD1_ASV_over_DMSO_motif_presence,
+                                          mapping= aes(x = log2(baseMean), y= log2FoldChange,color= NeuroD1_motif), cex = 0.7) + 
+  ggtitle('NeuroD1 ASV induced / NeuroD1 DMSO non-Induced')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('NeuroD1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+ 
+
+NeuroD1_plot_motif_Chip<- ggplot()+ geom_point(NeuroD1_ASV_over_DMSO_motif_presence[NeuroD1_ASV_over_DMSO_motif_presence$ChiP==1,],
+                                             mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= NeuroD1_motif), cex = 0.7) +
+  labs(title="NeuroD1 ASV induced / NeuroD1 DMSO non-Induced \n (present in ChiP data)")+ theme_classic2()+
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-5,5) + xlim(0,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_color_manual(name = expression('NeuroD1 motif'), labels = c('absent','present'),values=c("#999999", "#E69F00"))+
+  theme(legend.position = c(0.88, 0.9))
+
+
+
+
+NeuroD1_plot_chip
+NeuroD1_plot_motif
+NeuroD1_plot_motif_Chip
+
+tiff("NeuroD1_induced_in_Chip_data.tiff",compression = "zip")
+NeuroD1_plot_chip
+dev.off()
+
+
+tiff("NeuroD1_motif_in_Chip.tiff",compression = "zip")
+NeuroD1_plot_chip
+dev.off()
+  
+````
+
+```{r}
+# find overlaps
+ol <- findOverlapsOfPeaks(NeuroD1, Ascl1,Pax4,Pax6)
+tiff("Venndiagram.tiff", compression = "zip")
+makeVennDiagram(ol,
+                fill=c("#CC79A7", "#56B4E9", "#F0E442","#faad00"), # circle fill color
+                col=c("#D55E00", "#0072B2", "#E69F00","#bae600"), #circle border color
+                cat.col=c("#D55E00", "#0072B2", "#E69F00","#0047e6"), main= 'Peaks in ChIP-Seq data')
+dev.off()
+dev.print(van, "vandiagram_DBD.pdf")
+ol$venn_cnt
+
+
+
+````
+
+```{r}
+
+annoData <- toGRanges(txdb, feature="gene")
+annoData
+
+annotatedPeak_NeuroD1 <- annotatePeakInBatch(NeuroD1,
+                                     AnnotationData = annoData)
+annotatedPeak_Ascl1 <- annotatePeakInBatch(Ascl1,
+                                     AnnotationData = annoData)
+
+annotatedPeak_Pax6 <- annotatePeakInBatch(Pax6,
+                                     AnnotationData = annoData)
+annotatedPeak_Pax4 <- annotatePeakInBatch(Pax4,
+                                     AnnotationData = annoData)
+
+pie1(table(as.data.frame(annotatedPeak_NeuroD1)$insideFeature))
+pie1(table(as.data.frame(annotatedPeak_Ascl1)$insideFeature))
+
+pie1(table(as.data.frame(annotatedPeak_Pax6)$insideFeature))
+pie1(table(as.data.frame(annotatedPeak_Pax4)$insideFeature))
+````
+
+```{r}
+
+features <- ol$peaklist[[length(ol$peaklist)]]
+wid <-  width(features)
+feature.recentered <- feature.center <- features
+start(feature.center) <- start(features) + floor(wid/2)
+width(feature.center) <- 1
+start(feature.recentered) <- start(feature.center) - 2000
+end(feature.recentered) <- end(feature.center) + 2000
+path <- '/home/ubuntu/MOUNT3/angela/intro_to_HPC_and_NF/nextflow_output/bwa/mergedLibrary/bigwig/'
+files <- dir(path, "bigWig")
+
+if(.Platform$OS.type != "windows"){
+    cvglists <- sapply(file.path(path, files), import, 
+                       format="BigWig", 
+                       which=feature.recentered, 
+                       as="RleList")
+}else{
+    load(file.path(path, "cvglist.rds"))
+}
+
+names(cvglists) <- gsub("MmES_", "",gsub(".bigWig", "", files))
+sig <- featureAlignedSignal(cvglists, feature.center, 
+                            upstream=2000, downstream=2000) 
+heatmap <- featureAlignedHeatmap(sig, feature.center, 
+                                 upstream=2000, downstream=2000,
+                                 upper.extreme=c(3,.5,4))
+````
+
+
+
+```{r}
+featureAlignedDistribution(sig, feature.center, 
+                           upstream=2000, downstream=2000,
+                           type="l") 
+
+````
+
+
+
+```{r}
+enrichPeakOverlap(queryPeak     = Ascl1,
+                  targetPeak    = unlist(peak_files[c(1,2,4)]),
+                  TxDb          = txdb,
+                  nShuffle      = 50,
+                  chainFile     = NULL,
+                  verbose       = FALSE)
+
+
+enrichPeakOverlap(queryPeak     = Pax4,
+                  targetPeak    = unlist(peak_files[c(2,3,4)]),
+                  TxDb          = txdb,
+                  nShuffle      = 50,
+                  chainFile     = NULL,
+                  verbose       = FALSE)
+
+
+
+````
+
+# make sample sheet for DiffBind
+```{r}
+path_to_file <- "/home/ubuntu/MOUNT3/angela/intro_to_HPC_and_NF/nextflow_output/bwa/mergedLibrary"
+bam_control <- "/MmES_bioGFP_r1.mLb.clN.sorted.bam"
+
+bam_files <- list.files(
+    path       = path_to_file, 
+    full.names = TRUE, 
+    pattern    = c('.bam$')
+)[2:5]
+
+peak_caller <- 'macs'
+
+path_peak <- paste0(path_to_file, '/macs2/broadPeak')
+
+peak_files <- list.files(
+    path       = path_peak, 
+    full.names = TRUE, 
+    pattern    = c('.xls$')
+)
+
+samplesheet <- data.frame(SampleID = c('Pax4','Pax6','Ascl1','NeuroD1'), 
+                          bamReads=bam_files,
+                                         ControlID = c(rep('GFP', length(peak_files))),
+                                         bamControl = c(rep(paste0(path_to_file,bam_control), length(peak_files))),
+                          Peaks = peak_files, PeakCaller= c(rep(peak_caller, length(peak_files))))
+
+write.csv(samplesheet, "samplesheet_DiffBind.csv", row.names = FALSE,quote = F)
+
+
+````
+
+
+```{r}
+
+#make dba object
+samples <- read.csv('samplesheet_DiffBind.csv')
+names(samples)
+dbObj <- dba(sampleSheet=samples)
+
+````
+
+
+
+```{r}
+
+tiff("Correlation_Ascl1_NeuroD1.tiff",compression = "zip")
+dba.plotHeatmap(dbObj)
+dev.off()
+dba.plotHeatmap(dbObj)
+
+# how these samples cluster together
+````
+
+
+```{r}
+#for each of the consensus regions DiffBind takes the number of aligned reads in the ChIP sample and the input sample, to compute a normalized read count for each sample at every potential binding site. FriP values are:proportion of reads for that sample that overlap a peak in the consensus peakset, and can be used to indicate which samples show more enrichment overall.
+
+dbObj.counted <- dba.count(dbObj, summits=250,score=DBA_SCORE_NORMALIZED)
+
+dbObj.analysed<- dba.analyze(dbObj.counted, method=DBA_EDGER)
+summits <- dba.peakset(dbObj.counted, bRetrieve = TRUE)
+
+
+peakAnno_dbObj.counted_Ascl1 <- annotatePeak(dbObj.analysed$peaks.blacklisted$Ascl1  , tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+dd_peakAnnoList_Ascl1 <- as.data.frame(peakAnno_dbObj.counted_Ascl1)
+
+Ascl1_ASV_over_DMSO_motif_presence <- rownames_to_column(Ascl1_ASV_over_DMSO_motif_presence, var = "SYMBOL")
+
+merge_Ascl1 <- merge(Ascl1_ASV_over_DMSO_motif_presence,dd_peakAnnoList_Ascl1, by.x = 'SYMBOL', by.y = 'SYMBOL')
+
+dim(Ascl1_ASV_over_DMSO_motif_presence)
+dim(dd_peakAnnoList_Ascl1)
+
+g <- unique(dd_peakAnnoList_Ascl1$geneId)
+
+g_entrez <- as.data.frame(AnnotationDbi::mapIds(org.Mm.eg.db, keys =g ,
+       column = "SYMBOL", keytype = "ENTREZID"))
+g_entrez <- g_entrez %>% rownames_to_column()
+
+colnames(g_entrez) <- c('entrez','geneId')
+m <- match(dd_peakAnnoList_Ascl1$geneId, g_entrez$entrez)
+
+dd_peakAnnoList_Ascl1  <- cbind(dd_peakAnnoList_Ascl1 [,1:14], geneSymbol=g_entrez$geneId[m], dd_peakAnnoList_Ascl1[,15:16])
+
+dba.plotPCA(dbObj.counted,  attributes=DBA_ID, label=DBA_ID)
+dbObj.analysed <- dba.analyze(dbObj.counted)
+
+dim(merge_Ascl1)
+
+````
+
+
+```{r}
+ucsc_mm10 <- TxDb.Mmusculus.UCSC.mm10.knownGene
+
+p <- promoters(genes(ucsc_mm10), upstream = 2000, downstream = 200)
+
+mean(Ascl1$signalValue)
+
+Ascl1_peaks_above_avg <-Ascl1[Ascl1$signalValue > mean(Ascl1$signalValue)]
+NeuroD1_peaks_above_avg <-NeuroD1[NeuroD1$signalValue > mean(NeuroD1$signalValue)]
+
+ol_A_N <- findOverlapsOfPeaks(Ascl1_peaks_above_avg,NeuroD1_peaks_above_avg)
+tiff("Venndiagram.tiff", compression = "zip")
+makeVennDiagram(ol_A_N,
+                fill=c("#CC79A7", "#56B4E9"), # circle fill color
+                col=c("#D55E00", "#0072B2"), #circle border color
+                cat.col=c("#D55E00", "#0072B2"), main= 'Peaks in ChIP-Seq data')
+
+
+
+above_avg_peakAnno_Ascl1 <- annotatePeak(Ascl1_peaks_above_avg, tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+g <- as.vector(unique(as.data.frame(above_avg_peakAnno_Ascl1)$SYMBOL))
+length(g)
+
+
+Ascl1_ASV_over_DMSO_motif_presence <- read.csv("/home/ubuntu/MOUNT3/angela/ChiP_seq_analysis_TM/Ascl1_ASV_over_DMSO_motif_presence.tsv", sep="")
+genes_RNAseq <- rownames(Ascl1_ASV_over_DMSO_motif_presence)
+
+length(g[is.element(g,genes_RNAseq)])
+
+
+````

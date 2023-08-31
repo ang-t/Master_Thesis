@@ -1,0 +1,11 @@
+#!/bin/bash
+
+
+FILES
+do
+	NEWDIR='temporary'
+	tar -xvf $f -C $NEWDIR
+	F='temporary/*R1_001.fastq.gz'
+	cat $F
+	rm -r $NEWDIR
+done

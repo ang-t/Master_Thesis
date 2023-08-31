@@ -1,0 +1,1043 @@
+---
+title: "xAT0008_SLAMseq_analysis"
+author: "Angela Topic"
+date: "24/05/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+The sequencing results were downloaded from Useq and first always check if it is correct with the md5sum.txt. The hashs of the different files are compared. Command: md5sum -c md5sums.txt
+
+Because there were three files for the reads for each sample, thex had to be concatenated with a shell script. (sh_script_conc_gz.sh) /change path on script to path to raw. files
+
+
+
+
+
+```{r}
+setwd('/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/rscripts/')
+
+ #packages
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(corrplot)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(tibble)
+library(plyr)
+library(ggpubr)
+library(ggrepel)
+library(reshape2)
+library(grid)
+library(gtools)
+
+sessionInfo()
+
+```
+To combine the fastq files from both sequencing runs
+```{bash}
+find /home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/fasta{1,2} -type f -exec bash -c 'cat "$1" >> /home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/merged_fasta/"$(basename "${1/fasta[12]/merged_fasta}")"' _ {} \;
+```
+
+
+# Design File
+```{r }
+
+n <- 24 # n samples
+
+path_to_file <- '/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/merged_fasta/'
+
+
+condition<- c(rep("2h_ASV",3),
+          rep("4h_ASV",3),
+          rep("2h_DMSO",3),
+          rep("4h_DMSO",3),
+          rep("2h_ASV",3),
+          rep("4h_ASV",3),
+          rep("2h_DMSO",3),
+          rep("4h_DMSO",3)
+          )
+
+
+control <- c(rep(0,6),
+             rep(1,6),
+             rep(0,6),
+             rep(1,6))
+
+group <- c(rep("Empty",12),
+             rep("Ascl1",12))
+
+
+
+r <- mixedsort(list.files(path = path_to_file, pattern="xAT"), decreasing = T)
+
+
+reads <- paste0(path_to_file,r)
+
+input_file <- as.data.frame(cbind(group,condition,control,reads))
+input_file$control <- as.integer(input_file$control)
+input_file$group<- as.factor(input_file$group)
+
+input_file$condition <- as.factor(input_file$condition)
+str(input_file)
+
+head(input_file)
+
+write.table(input_file,'/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/input.tsv', row.names = F, col.names= T,quote = F, sep="\t" )
+
+
+```
+
+
+# running the nf-core pipeline for SLAMseq
+
+
+test running the slamseq pipeline on nextflow with the docker profile
+```{bash, eval = F}
+# update
+nextflow pull nf-core/slamseq
+#test.run
+ 
+nextflow run nf-core/slamseq -profile test,docker -r 1.0.0 --max_cpus 6 --max_memory '8.GB'
+```
+
+The BED file with the mm10 3'UTRs used in the slamseq analysis were made by Davide so that all of the UTRs can be collapsed onto their geneIDs. Info on how this bed file was made is found here: SlamSeq_making_modified_3UTRbed.Rmd
+
+this was the final version:
+SLAMseq is written in DSL1 and newer nexflow version dont support that anymore, had to specify exactt version
+```{bash,  eval = F}
+NXF_VER=22.10.7 nextflow run nf-core/slamseq -profile docker -r 1.0.0 --input /home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/input.tsv  --genome GRCm38 --bed /home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/3UTR_mm10_VM23_chr_geneID_partialMerge.bed --read_length 75 --outdir /home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/nextflow_output_2 --max_cpus 16 --max_memory '50.GB' --skip_deseq2 
+```
+
+Make the count data table
+```{r }
+path_to_count_files <- '/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/nextflow_output_2/slamdunk/count/utrs/'
+
+
+files <- mixedsort(list.files(path = path_to_count_files, pattern="xAT", full.names = T), decreasing = T)
+list_data <- lapply(files, read.table, header= T)
+name <- c()
+
+
+for (i in 1:length(files)){
+  name <- cbind(name,strsplit(basename(files[i]),'_')[[1]][1])
+  
+}
+
+names(list_data) <- paste('df',name, sep = '_')
+
+
+list_data <- lapply(list_data,dplyr::select, c('Name','TcReadCount','ReadCount'))
+
+list2env(list_data, .GlobalEnv)
+
+
+
+list_data_counts <- lapply(list_data,dplyr::select, c('TcReadCount'))
+list_data_counts_all <- lapply(list_data,dplyr::select, c('ReadCount'))
+
+length(list_data)
+
+merge_df <- cbind(list_data[[1]][,1:2],list_data_counts[2:24])
+merge_df_all <- cbind(list_data[[1]][,1:2],list_data_counts_all[2:24])
+
+colnames(merge_df_all ) <- c('Genes',names(list_data))
+
+colnames(merge_df ) <- c('Genes',names(list_data))
+
+#saving the t->c converted readcount file
+write_tsv(merge_df, "/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/rscripts/data/xAT0008_tcReadCount.tsv")
+
+```
+
+
+
+
+
+# convert the utr count into gene_id counts, by summing up the counts for the same genes
+
+```{r }
+str(merge_df)
+
+names_samples <- c('Gene_id','Empty_ASV_2h_1','Empty_ASV_2h_2','Empty_ASV_2h_3',
+                   'Empty_ASV_4h_1','Empty_ASV_4h_2','Empty_ASV_4h_3',
+                   'Empty_DMSO_2h_1','Empty_DMSO_2h_2','Empty_DMSO_2h_3',
+                   'Empty_DMSO_4h_1','Empty_DMSO_4h_2','Empty_DMSO_4h_3',
+                   'Ascl1_ASV_2h_1','Ascl1_ASV_2h_2','Ascl1_ASV_2h_3',
+                   'Ascl1_ASV_4h_1','Ascl1_ASV_4h_2','Ascl1_ASV_4h_3',
+                   'Ascl1_DMSO_2h_1','Ascl1_DMSO_2h_2','Ascl1_DMSO_2h_3',
+                   'Ascl1_DMSO_4h_1','Ascl1_DMSO_4h_2','Ascl1_DMSO_4h_3')
+
+colnames(merge_df) <- names_samples
+colnames(merge_df_all) <- names_samples
+
+
+tcReadCount_unique_geneID.merged <- merge_df  %>% group_by(Gene_id) %>% summarise_each(sum)
+tcReadCount_unique_geneID.merged_all <- merge_df_all  %>% group_by(Gene_id) %>% summarise_each(sum)
+
+tcReadCount_unique_geneID.merged[tcReadCount_unique_geneID.merged$Gene_id =='Eif5b',]
+merge_df[merge_df$Gene_id =='Eif5b',]
+
+write_tsv(tcReadCount_unique_geneID.merged , "/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/rscripts/data/xAT0008_tcReadCount_unique_geneID.merged.tsv")
+
+
+
+tcReadCount_unique_geneID.merged <- column_to_rownames(tcReadCount_unique_geneID.merged, var= 'Gene_id')
+tcReadCount_unique_geneID.merged[] <- lapply(tcReadCount_unique_geneID.merged, as.numeric)
+d <- colSums(tcReadCount_unique_geneID.merged)
+d <- melt(d)
+ 
+d <- rownames_to_column(d)
+blot_plot_TC <- ggplot(data= d[1:24,], aes(x= rowname,y= value))+  geom_bar(stat= 'identity', fill="steelblue") + theme_classic2()+ggtitle('T>C Read Counts')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5)) + xlab('Sample') +ylab('Counts')
+
+
+
+
+
+tcReadCount_unique_geneID.merged_all <- column_to_rownames(tcReadCount_unique_geneID.merged_all, var= 'Gene_id')
+tcReadCount_unique_geneID.merged_all[] <- lapply(tcReadCount_unique_geneID.merged_all, as.numeric)
+d_all <- colSums(tcReadCount_unique_geneID.merged_all)
+d_all <- melt(d_all)
+ 
+d_all <- rownames_to_column(d_all)
+blot_plot_all <- ggplot(data= d_all[1:24,], aes(x= rowname,y= value))+  geom_bar(stat= 'identity', fill="steelblue") + theme_classic2()+ggtitle('Total Read Counts')+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=0.5)) + xlab('Sample') +ylab('Counts')
+
+
+ggsave("Plots/blot_plot_all.png",blot_plot_all, dpi=300)
+ggsave("Plots/blot_plot_TC.png",blot_plot_TC, dpi=300)
+blot_plot_all
+blot_plot_TC
+```
+
+```{r }
+
+tcReadCount_unique_geneID.merged_df<-read_table("/home/ubuntu/MOUNT3/angela/xAT0008_SLAMseq2/rscripts/data/xAT0008_tcReadCount_unique_geneID.merged.tsv")
+
+ggplot(tcReadCount_unique_geneID.merged_df)+ geom_histogram(mapping= aes(x=Ascl1_ASV_2h_1))
+cor_merged.gene_tcReadCount <- cor(tcReadCount_unique_geneID.merged_df[2:length(tcReadCount_unique_geneID.merged_df[1,])], method = 'pearson')
+
+corrplot(cor_merged.gene_tcReadCount, method = 'color', type = "upper",tl.col = "black", tl.cex =.55, is.corr = FALSE)
+
+pheatmap(cor_merged.gene_tcReadCount, cellheight=9, cellwidth = 9, fontsize = 7)
+
+treatment <- c(rep("2h",3),
+               rep("4h",3), 
+               rep("2h",3), 
+               rep("4h",3),
+               rep("2h",3), 
+               rep("4h",3),
+               rep("2h",3), 
+               rep("4h",3))
+
+cell_type <- c(rep("Empty_ASV",6),rep("Empty_DMSO",6),rep("Ascl1_ASV",6),rep("Ascl1_DMSO",6))
+
+cell_type_and_induction <- c(rep("Empty_ASV_2h", 3), 
+                             rep("Empty_ASV_4h", 3),
+                             rep("Empty_DMSO_2h", 3), 
+                             rep("Empty_DMSO_4h", 3),
+                             rep("Ascl1_ASV_2h", 3), 
+                             rep("Ascl1_ASV_4h", 3),
+                             rep("Ascl1_DMSO_2h", 3), 
+                             rep("Ascl1_DMSO_4h", 3))
+
+# make d data frame for the DESeq analysis
+Data <- as.data.frame(cbind(colnames(
+tcReadCount_unique_geneID.merged_df[2:length(
+tcReadCount_unique_geneID.merged_df)]), treatment, cell_type, cell_type_and_induction))
+
+
+```
+
+```{r }
+
+
+tcReadCount_unique_geneID.merged_df<- column_to_rownames(tcReadCount_unique_geneID.merged_df, var="Gene_id")
+DESdata <-DESeqDataSetFromMatrix(countData=
+tcReadCount_unique_geneID.merged_df,
+                                 colData=Data, design=~ cell_type_and_induction)
+
+dd <- DESeq(DESdata)# normalization is already done here
+
+dd_norm <- vst(dd)
+nrow(dd)
+resultsNames(dd)
+res <- results(dd)
+head(res)
+
+ggsave("Plots/PCA_plot.png",PCA_plot, dpi=300)
+
+PCA_plot <- plotPCA(dd_norm ,
+  intgroup ='cell_type_and_induction',
+  returnData = FALSE)+ ggtitle('cell_type_and_treatment') 
+
+
+res_Ascl1_2h_over_Empty_2h_non_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_DMSO_2h", "Empty_DMSO_2h"), type="norm")
+DESeq2::plotMA(res_Ascl1_2h_over_Empty_2h_non_induced , ylim=c(-4,4),main = 'Ascl1 2h non-induced / Empty 2h non-induced')
+
+res_Ascl1_4h_over_Empty_4h_non_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_DMSO_4h", "Empty_DMSO_4h"), type="norm")
+DESeq2::plotMA(res_Ascl1_4h_over_Empty_4h_non_induced , ylim=c(-4,4),main = 'Ascl1 4h non-induced / Empty 4h non-induced')
+
+res_Ascl1_2h_over_Empty_2h_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV_2h", "Empty_ASV_2h"), type="norm")
+DESeq2::plotMA(res_Ascl1_2h_over_Empty_2h_induced , ylim=c(-4,4),main = 'Ascl1 2h induced / Empty 2h induced')
+
+res_Ascl1_4h_over_Empty_4h_induced <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV_4h", "Empty_ASV_4h"), type="norm")
+DESeq2::plotMA(res_Ascl1_4h_over_Empty_4h_non_induced , ylim=c(-4,4),main = 'Ascl1 4h induced / Empty 4h induced')
+
+
+#view(res_Ascl1_2h )
+res_Ascl1_2h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV_2h", "Ascl1_DMSO_2h"), type="norm")
+DESeq2::plotMA(res_Ascl1_2h , ylim=c(-4,4),main = 'Ascl1 2h induced / Ascl1 2h non-induced')
+
+res_Ascl1_4h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV_4h", "Ascl1_DMSO_4h"), type="norm")
+DESeq2::plotMA(res_Ascl1_4h , ylim=c(-4,4),main = 'Ascl1 4h induced / Ascl1 4h non-induced')
+
+res_Ascl1_4hvs2h <- lfcShrink(dd, contrast = c("cell_type_and_induction","Ascl1_ASV_4h", "Ascl1_ASV_2h"), type="norm")
+```
+```{r}
+
+df_res_Ascl1_2h_over_Empty_2h_non_induced<- as.data.frame(res_Ascl1_2h_over_Empty_2h_non_induced)
+ df_res_Ascl1_2h_over_Empty_2h_plot<- ggplot()+ geom_point(df_res_Ascl1_2h_over_Empty_2h_non_induced,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR non-Induced / Empty-VPR non-Induced 2h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+ 
+ df_res_Ascl1_4h_over_Empty_4h_non_induced<- as.data.frame(res_Ascl1_4h_over_Empty_4h_non_induced)
+ df_res_Ascl1_4h_over_Empty_4h_plot<-ggplot()+ geom_point(df_res_Ascl1_4h_over_Empty_4h_non_induced,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR non-Induced / Empty-VPR non-Induced 4h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+ 
+   df_res_Ascl1_2h_over_Empty_2h_induced<- as.data.frame(res_Ascl1_2h_over_Empty_2h_induced)
+ df_res_Ascl1_2h_over_Empty_2h_induced_plot<-ggplot()+ geom_point(df_res_Ascl1_2h_over_Empty_2h_induced,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-VPR Induced 2h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+  df_res_Ascl1_4h_over_Empty_4h_induced<- as.data.frame(res_Ascl1_4h_over_Empty_4h_induced)
+ df_res_Ascl1_4h_over_Empty_4h_induced_plot<- ggplot()+ geom_point(df_res_Ascl1_4h_over_Empty_4h_induced,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Empty-VPR Induced 4h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+ 
+ df_res_Ascl1_2h <- as.data.frame(res_Ascl1_2h )
+ df_res_Ascl1_2h_plot<- ggplot()+ geom_point(df_res_Ascl1_2h,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-VPR non-Induced 2h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+ 
+  df_res_Ascl1_4h <- as.data.frame(res_Ascl1_4h )
+ df_res_Ascl1_4h_plot<- ggplot()+ geom_point(df_res_Ascl1_4h,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced / Ascl1-VPR non-Induced 4h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+   df_res_Ascl1_4hvs2h <- as.data.frame(res_Ascl1_4hvs2h)
+ df_res_Ascl1_4hvs2h_plot<- ggplot()+ geom_point(df_res_Ascl1_4hvs2h,mapping= aes(x = log2(baseMean), y= log2FoldChange ,color= pvalue <0.05), cex = 0.7) + ggtitle('Ascl1-VPR Induced 4h / Ascl1-VPR Induced 2h')+ theme_classic2()+ 
+  xlab('Log2 Mean Expression')+
+  ylab('Log2 Fold Change') + ylim(-3,5) + xlim(-10,14)+ geom_hline(yintercept = c(1,-1), color = 'red',linetype= 'dashed')+
+  geom_hline(yintercept = 0, color = 'black')+ 
+  scale_colour_manual(values = wes_palette("Royal1", n = 2),labels = c('absent','present'))+
+  theme(legend.position = "none")
+ 
+ 
+
+
+ df_res_Ascl1_2h_over_Empty_2h_plot
+ df_res_Ascl1_4h_over_Empty_4h_plot
+ df_res_Ascl1_2h_over_Empty_2h_induced_plot
+ df_res_Ascl1_4h_over_Empty_4h_induced_plot
+ df_res_Ascl1_2h_plot
+ df_res_Ascl1_4h_plot
+ df_res_Ascl1_4hvs2h_plot
+ 
+ 
+ 
+ggsave("Plots/df_res_Ascl1_2h_over_Empty_2h_plot.png",df_res_Ascl1_2h_over_Empty_2h_plot, dpi=300)
+ggsave("Plots/df_res_Ascl1_4h_over_Empty_4h_plot.png",df_res_Ascl1_4h_over_Empty_4h_plot, dpi=300)
+ggsave("df_res_Ascl1_2h_over_Empty_2h_induced_plot.png",df_res_Ascl1_2h_over_Empty_2h_induced_plot, dpi=300)
+ggsave("df_res_Ascl1_4h_over_Empty_4h_induced_plot.png",df_res_Ascl1_4h_over_Empty_4h_induced_plot, dpi=300)
+ggsave("Plots/df_res_Ascl1_2h_plot.png",df_res_Ascl1_2h_plot, dpi=300)
+ggsave("Plots/df_res_Ascl1_4h_plot.png",df_res_Ascl1_4h_plot, dpi=300)
+ggsave("Plots/df_res_Ascl1_4hvs2h_plot.png",df_res_Ascl1_4hvs2h_plot, dpi=300)
+
+
+
+
+```
+
+
+
+```{r}
+
+df_res_Ascl1_4h_sel <- df_res_Ascl1_4h %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05) %>% rownames_to_column("mgi_symbol")
+df_res_Ascl1_2h_sel <- df_res_Ascl1_2h %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05)%>% rownames_to_column("mgi_symbol")
+
+
+mgi_symboles <- unique(c(df_res_Ascl1_4h_sel$mgi_symbol,df_res_Ascl1_2h_sel$mgi_symbol))
+
+df_res_Ascl1_4h_selected <- df_res_Ascl1_4h %>% filter(rownames(df_res_Ascl1_4h) %in% mgi_symboles)%>% select(c("log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+
+df_res_Ascl1_2h_selected <- df_res_Ascl1_2h %>% filter(rownames(df_res_Ascl1_2h) %in% mgi_symboles)%>% select(c("log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+
+
+merged_df <- merge(df_res_Ascl1_4h_selected,df_res_Ascl1_2h_selected,by = "mgi_symbol", all = TRUE)
+
+df_names <-  c("mgi_symbol", "4h", "2h")
+colnames(merged_df) <- df_names
+
+#melt df
+merged_df <- merged_df[order(-merged_df$'4h'),]
+
+
+
+melt_merged_df <- melt(merged_df)
+
+
+pal <-wes_palette("Royal1", 100, type = "continuous") 
+
+#png('../plots/Top_overexpressed_genes.png', height = 400, width = 900)
+ggsave('Plots/Top_overexpressed_genes.png',tst,dpi = 300)
+tst <- ggplot(melt_merged_df, aes(variable, reorder(mgi_symbol, value),fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#B2182B",
+                       mid = "#FFFFCC",
+                       high = "blue4",name = expression('log2FoldChange')) + 
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +labs(x = "", y = "Genes") +ggtitle("Top Overexpressed Genes\n(Ascl1/VPR induced/non-induced)")+ coord_fixed(ratio=1/9)+
+  theme(plot.title = element_text(hjust = 0.5))
+dev.off()
+
+
+
+
+df_res_Ascl1_4h_over_Empty_4h_induced_sel <- df_res_Ascl1_4h_over_Empty_4h_induced  %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05 & abs(log2FoldChange)>2) %>% rownames_to_column("mgi_symbol")
+df_res_Ascl1_2h_over_Empty_2h_induced_sel <- df_res_Ascl1_2h_over_Empty_2h_induced %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05& abs(log2FoldChange)>2)%>% rownames_to_column("mgi_symbol")
+
+
+mgi_symboles <- unique(c(df_res_Ascl1_4h_over_Empty_4h_induced_sel$mgi_symbol,df_res_Ascl1_2h_over_Empty_2h_induced_sel$mgi_symbol))
+
+df_res_Ascl1_4h_over_Empty_4h_induced_selected <- df_res_Ascl1_4h_over_Empty_4h_induced  %>% filter(rownames(df_res_Ascl1_4h_over_Empty_4h_induced) %in% mgi_symboles)%>% select(c("log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+
+df_res_Ascl1_2h_over_Empty_2h_induced_selected <- df_res_Ascl1_2h_over_Empty_2h_induced %>% filter(rownames(df_res_Ascl1_2h_over_Empty_2h_induced) %in% mgi_symboles)%>% select(c("log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+
+
+merged_df_Empty <- merge(df_res_Ascl1_4h_over_Empty_4h_induced_selected,df_res_Ascl1_2h_over_Empty_2h_induced_selected,by = "mgi_symbol", all = TRUE)[1:90,]
+
+df_names<-  c("mgi_symbol", "4h", "2h")
+colnames(merged_df_Empty) <- df_names
+
+#melt df
+
+
+
+
+melt_merged_df_Empty <- melt(merged_df_Empty)
+
+
+pal <-wes_palette("Royal1", 100, type = "continuous") 
+
+#png('../plots/Top_overexpressed_genes.png', height = 400, width = 900)
+melt_merged_df_Empty<- na.omit(melt_merged_df_Empty)
+
+tst_empty <- ggplot(melt_merged_df_Empty, aes(variable, reorder(mgi_symbol, value),fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "#B2182B",
+                       mid = "#FFFFCC",
+                       high = "blue4",name = expression('log2FoldChange')) + 
+  scale_x_discrete(expand = c(0, 0)) +
+  scale_y_discrete(expand = c(0, 0)) +labs(x = "", y = "Genes") +ggtitle("Top Overexpressed Genes\n(Ascl1/VPR vs.Empty/VPR induced)")+ coord_fixed(ratio=1/9)+
+  theme(plot.title = element_text(hjust = 0.5))
+ggsave('Plots/Top_overexpressed_genes_Empty.png',tst_empty,dpi = 300)
+```
+```{r}
+df_res_Ascl1_4h_over_Empty_4h_induced_sel <- df_res_Ascl1_4h_over_Empty_4h_induced  %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05) %>% rownames_to_column("mgi_symbol")
+
+
+
+all_Ascl1_4h_over_Empty_4h_induced_biomart_info <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = df_res_Ascl1_4h_over_Empty_4h_induced_sel$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+all_Ascl1_4h_over_Empty_4h_induced.merged <- dplyr::inner_join(df_res_Ascl1_4h_over_Empty_4h_induced_sel, all_Ascl1_4h_over_Empty_4h_induced_biomart_info , by = "mgi_symbol")
+
+all_Ascl1_4h_over_Empty_4h_induced_ENTREZID <- na.omit(
+unique(all_Ascl1_4h_over_Empty_4h_induced.merged$entrezgene_id))
+
+GO_all_Ascl1_4h_over_Empty_4h_induced_BP <- enrichGO(all_Ascl1_4h_over_Empty_4h_induced_ENTREZID , org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.05)
+GO_all_Ascl1_4h_over_Empty_4h_induced_MF <- enrichGO(all_Ascl1_4h_over_Empty_4h_induced_ENTREZID, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.1)
+
+
+
+GO_all_Ascl1_4h_over_Empty_4h_induced_BP_plt <- dotplot(GO_all_Ascl1_4h_over_Empty_4h_induced_BP, showCategory=10)+ ggtitle("BP Ascl1/VPR 4h")
+GO_all_Ascl1_4h_over_Empty_4h_induced_MF_plt <- dotplot(GO_all_Ascl1_4h_over_Empty_4h_induced_MF)+ ggtitle("MF Ascl1/VPR 4h")
+
+ggsave("Plots/GO_all_Ascl1_4h_over_Empty_4h_induced_BP_plt.png",GO_all_Ascl1_4h_over_Empty_4h_induced_BP_plt, dpi = 300)
+ggsave("Plots/GO_all_Ascl1_4h_over_Empty_4h_induced_MF_plt.png",GO_all_Ascl1_4h_over_Empty_4h_induced_MF_plt, dpi = 300)
+
+df_res_Ascl1_2h_over_Empty_2h_induced_sel <- df_res_Ascl1_2h_over_Empty_2h_induced  %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05) %>% rownames_to_column("mgi_symbol")
+
+all_Ascl1_2h_over_Empty_2h_induced_biomart_info <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = df_res_Ascl1_2h_over_Empty_2h_induced_sel$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+all_Ascl1_2h_over_Empty_2h_induced.merged <- dplyr::inner_join(df_res_Ascl1_2h_over_Empty_2h_induced_sel, all_Ascl1_2h_over_Empty_2h_induced_biomart_info , by = "mgi_symbol")
+
+all_Ascl1_2h_over_Empty_2h_induced_ENTREZID <- na.omit(
+unique(all_Ascl1_2h_over_Empty_2h_induced.merged$entrezgene_id))
+
+GO_all_Ascl1_2h_over_Empty_2h_induced_BP <- enrichGO(all_Ascl1_2h_over_Empty_2h_induced.merged$entrezgene_id , org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.1)
+GO_all_Ascl1_2h_over_Empty_2h_induced_MF <- enrichGO(all_Ascl1_2h_over_Empty_2h_induced.merged$entrezgene_id, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.1)
+
+
+
+
+GO_all_Ascl1_2h_over_Empty_2h_induced_BP_plt <- dotplot(GO_all_Ascl1_2h_over_Empty_2h_induced_BP, showCategory=10)+ ggtitle("BP Ascl1/VPR 2h")
+GO_all_Ascl1_2h_over_Empty_2h_induced_MF_plt <- barplot(GO_all_Ascl1_2h_over_Empty_2h_induced_MF)+ ggtitle("MF Ascl1/VPR 4h")
+ggsave("Plots/GO_all_Ascl1_2h_over_Empty_2h_induced_BP_plt.png",GO_all_Ascl1_2h_over_Empty_2h_induced_BP_plt, dpi = 300)
+ggsave("Plots/GO_all_Ascl1_2h_over_Empty_2h_induced_MF_plt.png",GO_all_Ascl1_2h_over_Empty_2h_induced_MF_plt, dpi = 300)
+
+df_res_Ascl1_2h_sel <- df_res_Ascl1_2h %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05) %>% rownames_to_column("mgi_symbol")
+
+df_res_Ascl1_2h_biomart_info <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = df_res_Ascl1_2h_sel$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+df_res_Ascl1_2h.merged <- dplyr::inner_join(df_res_Ascl1_2h_sel, df_res_Ascl1_2h_biomart_info, by = "mgi_symbol")
+
+
+
+GO_df_res_Ascl1_2h.merged_BP <- enrichGO(df_res_Ascl1_2h.merged$entrezgene_id , org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.5)
+GO_df_res_Ascl1_2h.merged_MF <- enrichGO(df_res_Ascl1_2h.merged$entrezgene_id, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.5)
+
+ggsave("Plots/GO_df_res_Ascl1_2h.merged_BP_plt.png",GO_df_res_Ascl1_2h.merged_BP_plt, dpi = 300)
+GO_df_res_Ascl1_2h.merged_BP_plt <- dotplot(GO_df_res_Ascl1_2h.merged_BP)+ ggtitle("BP Ascl1/VPR 2h")
+GO_df_res_Ascl1_2h.merged_MF_plt <- dotplot(GO_df_res_Ascl1_2h.merged_BP)+ ggtitle("MF Ascl1/VPR 4h")
+
+ggsave("Plots/GO_df_res_Ascl1_2h.merged_MF_plt.png",GO_df_res_Ascl1_2h.merged_MF_plt, dpi = 300)
+
+df_res_Ascl1_4h_sel <- df_res_Ascl1_4h %>% select(c("pvalue","log2FoldChange")) %>% filter(pvalue<0.05) %>% rownames_to_column("mgi_symbol")
+
+df_res_Ascl1_4h_biomart_info <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = df_res_Ascl1_4h_sel$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+df_res_Ascl1_4h.merged <- dplyr::inner_join(df_res_Ascl1_4h_sel, df_res_Ascl1_4h_biomart_info, by = "mgi_symbol")
+
+
+
+GO_df_res_Ascl1_4h.merged_BP <- enrichGO(df_res_Ascl1_4h.merged$entrezgene_id , org.Mm.eg.db, ont = "BP", pvalueCutoff = 0.5)
+GO_df_res_Ascl1_4h.merged_MF <- enrichGO(df_res_Ascl1_4h.merged$entrezgene_id, org.Mm.eg.db, ont = "MF", pvalueCutoff = 0.5)
+
+ggsave("Plots/GO_df_res_Ascl1_4h.merged_BP_plt.png",GO_df_res_Ascl1_4h.merged_BP_plt, dpi = 300)
+GO_df_res_Ascl1_4h.merged_BP_plt <- dotplot(GO_df_res_Ascl1_4h.merged_BP)+ ggtitle("BP Ascl1/VPR 4h")
+GO_df_res_Ascl1_4h.merged_MF_plt <- dotplot(GO_df_res_Ascl1_4h.merged_MF)+ ggtitle("MF Ascl1/VPR 4h")
+ggsave("Plots/GO_df_res_Ascl1_4h.merged_MF_plt.png",GO_df_res_Ascl1_4h.merged_MF_plt, dpi = 300)
+```
+
+
+
+```{r}
+
+p <- promoters(genes(txdb), upstream = 1500, downstream = 500)
+p_df <- as.data.frame(p)
+p_Ascl1_4h <- p_df %>% filter(gene_id %in% df_res_Ascl1_4h.merged$entrezgene_id)
+
+# create a GRanges object
+p_Ascl1_4h <- GRanges(seqnames = as.character(p_Ascl1_4h$seqnames),
+                        ranges = IRanges(start = p_Ascl1_4h$start, end = p_Ascl1_4h$end))
+
+p_Ascl1_2h <- p_df %>% filter(gene_id %in% df_res_Ascl1_2h.merged$entrezgene_id)
+
+p_Ascl1_2h <- GRanges(seqnames = as.character(p_Ascl1_2h$seqnames),
+                        ranges = IRanges(start = p_Ascl1_2h$start, end = p_Ascl1_2h$end))
+
+
+p_Ascl1_4h_over_Empty_4h_induced <- p_df%>% filter(gene_id %in% all_Ascl1_4h_over_Empty_4h_induced.merged$entrezgene_id) 
+
+
+p_Ascl1_4h_over_Empty_4h_induced <- GRanges(seqnames = as.character(p_Ascl1_4h_over_Empty_4h_induced$seqnames),
+                                            ranges = IRanges(start = p_Ascl1_4h_over_Empty_4h_induced$start,
+                                                             end =p_Ascl1_4h_over_Empty_4h_induced$end))
+
+p_Ascl1_2h_over_Empty_2h_induced <- p_df%>% filter(gene_id %in% all_Ascl1_2h_over_Empty_2h_induced.merged$entrezgene_id)
+
+p_Ascl1_2h_over_Empty_2h_induced <- GRanges(seqnames = as.character(p_Ascl1_2h_over_Empty_2h_induced$seqnames),
+                                            ranges = IRanges(start = p_Ascl1_2h_over_Empty_2h_induced$start,
+                                                             end =p_Ascl1_2h_over_Empty_2h_induced$end))
+
+```
+
+```{r}
+
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seq_p_Ascl1_4h <- getSeq(mm10, p_Ascl1_4h)
+seq_p_Ascl1_2h <- getSeq(mm10, p_Ascl1_2h)
+
+seq_p_Ascl1_4h_over_Empty_4h_induced <- getSeq(mm10, p_Ascl1_4h_over_Empty_4h_induced)
+seq_p_Ascl1_2h_over_Empty_2h_induced <- getSeq(mm10, p_Ascl1_2h_over_Empty_2h_induced)
+
+```
+
+
+```{r}
+
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+
+
+motif.seq_p_Ascl1_2h_over_Empty_2h_induced  <- calcBinnedMotifEnrR(seqs = seq_p_Ascl1_2h_over_Empty_2h_induced ,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.seq_p_Ascl1_2h_over_Empty_2h_induced<- motif.seq_p_Ascl1_2h_over_Empty_2h_induced 
+
+
+
+# convert to data frame
+df_se.seq.GR.seq_p_Ascl1_2h_over_Empty_2h_induced <- rowData(se.seq.GR.seq_p_Ascl1_2h_over_Empty_2h_induced)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.seq_p_Ascl1_2h_over_Empty_2h_induced<- assay(motif.seq_p_Ascl1_2h_over_Empty_2h_induced , "negLog10Padj")[, 1] > 1.0
+sel.motif.seq_p_Ascl1_2h_over_Empty_2h_induced[is.na(sel.motif.seq_p_Ascl1_2h_over_Empty_2h_induced)] <- FALSE
+
+
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+
+plotMotifHeatmaps(x = motif.seq_p_Ascl1_2h_over_Empty_2h_induced[sel.motif.seq_p_Ascl1_2h_over_Empty_2h_induced,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+```
+
+
+```{r}
+
+motif.seq_p_Ascl1_4h_over_Empty_4h_induced  <- calcBinnedMotifEnrR(seqs = seq_p_Ascl1_4h_over_Empty_4h_induced ,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.seq_p_Ascl1_4h_over_Empty_4h_induced<- motif.seq_p_Ascl1_4h_over_Empty_4h_induced 
+
+
+
+# convert to data frame
+df_se.seq.GR.seq_p_Ascl1_4h_over_Empty_4h_induced <- rowData(se.seq.GR.seq_p_Ascl1_4h_over_Empty_4h_induced)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.seq_p_Ascl1_4h_over_Empty_4h_induced<- assay(motif.seq_p_Ascl1_4h_over_Empty_4h_induced, "negLog10Padj")[, 1] > 1.0
+sel.motif.seq_p_Ascl1_4h_over_Empty_4h_induced[is.na(sel.motif.seq_p_Ascl1_4h_over_Empty_4h_induced)] <- FALSE
+
+
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+png("Plots/motif_enrichment_sig_Ascl1_Empty_4h_ind.png",  width = 600, height= 800)
+plotMotifHeatmaps(x = motif.seq_p_Ascl1_4h_over_Empty_4h_induced[sel.motif.seq_p_Ascl1_4h_over_Empty_4h_induced,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+dev.off()
+```
+
+```{r}
+
+motif.seq_p_Ascl1_4h <- calcBinnedMotifEnrR(seqs = seq_p_Ascl1_4h,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.motif.seq_p_Ascl1_4h<- motif.seq_p_Ascl1_4h
+
+
+
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.seq_p_Ascl1_4h<- assay(motif.seq_p_Ascl1_4h, "negLog10Padj")[, 1] > 1.0
+sel.motif.seq_p_Ascl1_4h[is.na(sel.motif.seq_p_Ascl1_4h)] <- FALSE
+
+
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+
+plotMotifHeatmaps(x = motif.seq_p_Ascl1_4h[sel.motif.seq_p_Ascl1_4h,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+
+```
+
+
+
+```{r}
+
+motif.seq_p_Ascl1_2h <- calcBinnedMotifEnrR(seqs = seq_p_Ascl1_2h,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.motif.seq_p_Ascl1_2h<- motif.seq_p_Ascl1_2h
+
+
+
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.seq_p_Ascl1_2h<- assay(motif.seq_p_Ascl1_2h, "negLog10Padj")[, 1] > 1.0
+sel.motif.seq_p_Ascl1_2h[is.na(sel.motif.seq_p_Ascl1_2h)] <- FALSE
+
+
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+
+plotMotifHeatmaps(x = motif.seq_p_Ascl1_2h[sel.motif.seq_p_Ascl1_2h,], which.plots = c("log2enr"), maxEnr = 2, maxSig = 10,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+
+```
+```{r}
+
+# path to your peak files
+data_path_ChIP <- "/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/MmES_RVChIP_062_pv6_Ascl1_DBD_pool_peaks.broadPeak"
+
+
+
+# extract the peaks for each sample and assign to a name
+peak_ASV<- readPeakFile(data_path_ChIP , as= 'GRanges')
+
+tot_Ascl1_2h_over_Empty_2h_induced <- as.data.frame(res_Ascl1_2h_over_Empty_2h_induced) %>% select(c("pvalue","log2FoldChange")) %>%rownames_to_column("mgi_symbol")
+
+df_tot_Ascl1_2h_over_Empty_2h_induced <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'mgi_symbol',
+  values = tot_Ascl1_2h_over_Empty_2h_induced$mgi_symbol,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+df_tot_Ascl1_2h_over_Empty_2h_induced_merged <- dplyr::inner_join(tot_Ascl1_2h_over_Empty_2h_induced, df_tot_res_Ascl1_2h_biomart_info, by = "mgi_symbol")
+
+
+p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged  <- p_df %>% filter(gene_id %in% df_tot_res_Ascl1_2h_biomart_info_merged$entrezgene_id)
+
+# create a GRanges object
+GR_p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged <- 
+  GRanges(seqnames = as.character(p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged$seqnames),
+                        ranges = IRanges(start = p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged$start,
+                                         end = p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged$end))
+
+
+
+
+
+d_to_promoter_Ascl1_2h_over_Empty_2h_induced <- distanceToNearest(peak_ASV,p_Ascl1_2h_over_Empty_2h_induced)
+df_d_to_promoter_Ascl1_2h_over_Empty_2h_induced <- as.data.frame(d_to_promoter_Ascl1_2h_over_Empty_2h_induced)
+
+tot_d_to_promoter_Ascl1_2h_over_Empty_2h_induced <- distanceToNearest(peak_ASV,GR_p_df_tot_Ascl1_2h_over_Empty_2h_induced_merged)
+df_tot_d_to_promoter_Ascl1_2h_over_Empty_2h_induced<- as.data.frame(tot_d_to_promoter_Ascl1_2h_over_Empty_2h_induced)
+
+
+ggplot(as.data.frame(df_d_to_promoter_Ascl1_2h_over_Empty_2h_induced),aes(x=distance))+geom_density(aes(colour="ChIP"), size= 1)+
+  labs(title="Distance to Promoter",x="Distance", y = "Count", colour="", size= 5)+theme_minimal() +xlim(0,10000)+ 
+  geom_density(df_tot_d_to_promoter_Ascl1_2h_over_Empty_2h_induced,mapping=aes(x=distance, colour="IgG(2/3)"), size= 1)+
+  geom_density(df_d_to_promoter_0.05,mapping=aes(x=distance, colour="pvalue0_05"),size= 1)+
+  geom_density(df_d_to_promoter_0.01,mapping=aes(x=distance, colour="pvalue0_01"), size= 1)+
+  scale_colour_manual(name="",values=c(ChIP="red", pvalue0_01="blue",pvalue0_05="lightblue","IgG(2/3)"="orange"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+```
+```{r}
+
+
+p <- promoters(genes(txdb), upstream = 1500, downstream = 500)
+p_df_s <- dplyr::select(p_df, "gene_id")
+
+
+p_mgi_symbol <- getBM(
+  attributes = c('entrezgene_id', 'mgi_symbol'),
+  filters = 'entrezgene_id',
+  values = p_df_s$gene_id,
+  mart = mart,
+  useCache = FALSE)
+
+colnames(p_df)[colnames(p_df) == "gene_id"] <- 'entrezgene_id'
+p_df$entrezgene_id <- as.integer(p_df$entrezgene_id)
+
+p_df.merged <- dplyr::inner_join(p_df, p_mgi_symbol, by = "entrezgene_id")
+
+df_res_Ascl1_2h_over_Empty_2h_non_induced <- df_res_Ascl1_2h_over_Empty_2h_non_induced %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_2h_over_Empty_2h_non_induced <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_2h_over_Empty_2h_non_induced$mgi_symbol)
+
+sel_df_res_Ascl1_2h_over_Empty_2h_non_induced <- df_res_Ascl1_2h_over_Empty_2h_non_induced  %>% filter(pvalue<0.05) 
+p_sel_df_res_Ascl1_2h_over_Empty_2h_non_induced <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_2h_over_Empty_2h_non_induced$mgi_symbol)
+
+
+df_res_Ascl1_4h_over_Empty_4h_non_induced <- df_res_Ascl1_4h_over_Empty_4h_non_induced %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_4h_over_Empty_4h_non_induced <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_4h_over_Empty_4h_non_induced$mgi_symbol)
+
+sel_df_res_Ascl1_4h_over_Empty_4h_non_induced <- df_res_Ascl1_4h_over_Empty_4h_non_induced %>% filter(pvalue<0.05) 
+p_sel_df_res_Ascl1_4h_over_Empty_4h_non_induced <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_4h_over_Empty_4h_non_induced$mgi_symbol)
+
+
+df_res_Ascl1_2h_over_Empty_2h_induced <- df_res_Ascl1_2h_over_Empty_2h_induced %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_2h_over_Empty_2h_induced <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_2h_over_Empty_2h_induced$mgi_symbol)
+
+sel_df_res_Ascl1_2h_over_Empty_2h_induced <- df_res_Ascl1_2h_over_Empty_2h_induced  %>% filter(pvalue<0.05) 
+p_sel_df_res_Ascl1_2h_over_Empty_2h_induced <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_2h_over_Empty_2h_induced$mgi_symbol)
+
+
+df_res_Ascl1_4h_over_Empty_4h_induced <- df_res_Ascl1_4h_over_Empty_4h_induced %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_4h_over_Empty_4h_induced <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_4h_over_Empty_4h_induced$mgi_symbol)
+
+sel_df_res_Ascl1_4h_over_Empty_4h_induced <- df_res_Ascl1_4h_over_Empty_4h_induced %>% filter(pvalue<0.05) 
+p_sel_df_res_Ascl1_4h_over_Empty_4h_induced <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_4h_over_Empty_4h_induced$mgi_symbol)
+
+
+df_res_Ascl1_4h <- df_res_Ascl1_4h %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_4h <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_4h$mgi_symbol)
+
+sel_df_res_Ascl1_4h <- df_res_Ascl1_4h %>% filter(pvalue<0.05) 
+p_sel_df_res_Ascl1_4h <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_4h$mgi_symbol)
+
+df_res_Ascl1_2h <- df_res_Ascl1_2h %>% select(c("pvalue","log2FoldChange")) %>% rownames_to_column("mgi_symbol")
+p_df_res_Ascl1_2h <- p_df.merged %>% filter(mgi_symbol%in% df_res_Ascl1_2h$mgi_symbol)
+
+sel_df_res_Ascl1_2h <- df_res_Ascl1_2h  %>% filter(pvalue<0.05)
+p_sel_df_res_Ascl1_2h <- p_df.merged %>% filter(mgi_symbol%in% sel_df_res_Ascl1_2h$mgi_symbol)
+
+
+```
+
+```{r}
+# get GRs
+
+GR_df_res_Ascl1_2h_over_Empty_2h_non_induced  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_2h_over_Empty_2h_non_induced$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_2h_over_Empty_2h_non_induced$start,
+                                         end = p_df_res_Ascl1_2h_over_Empty_2h_non_induced$end))
+GR_df_sel_res_Ascl1_2h_over_Empty_2h_non_induced  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_2h_over_Empty_2h_non_induced$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_2h_over_Empty_2h_non_induced$start,
+                                         end = p_sel_df_res_Ascl1_2h_over_Empty_2h_non_induced$end))
+
+GR_df_res_Ascl1_2h_over_Empty_2h_induced  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_2h_over_Empty_2h_induced$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_2h_over_Empty_2h_induced$start,
+                                         end = p_df_res_Ascl1_2h_over_Empty_2h_induced$end))
+GR_df_sel_res_Ascl1_2h_over_Empty_2h_induced  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_2h_over_Empty_2h_induced$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_2h_over_Empty_2h_induced$start,
+                                         end = p_sel_df_res_Ascl1_2h_over_Empty_2h_induced$end))
+
+
+
+
+GR_df_res_Ascl1_4h_over_Empty_4h_non_induced  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_4h_over_Empty_4h_non_induced$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_2h_over_Empty_2h_non_induced$start,
+                                         end = p_df_res_Ascl1_2h_over_Empty_2h_non_induced$end))
+GR_df_sel_res_Ascl1_4h_over_Empty_4h_non_induced  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_4h_over_Empty_4h_non_induced$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_4h_over_Empty_4h_non_induced$start,
+                                         end = p_sel_df_res_Ascl1_4h_over_Empty_4h_non_induced$end))
+
+GR_df_res_Ascl1_4h_over_Empty_4h_induced  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_4h_over_Empty_4h_induced$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_4h_over_Empty_4h_induced$start,
+                                         end = p_df_res_Ascl1_4h_over_Empty_4h_induced$end))
+GR_df_sel_res_Ascl1_4h_over_Empty_4h_induced  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_4h_over_Empty_4h_induced$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_4h_over_Empty_4h_induced$start,
+                                         end = p_sel_df_res_Ascl1_4h_over_Empty_4h_induced$end))
+
+
+
+GR_df_res_Ascl1_2h  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_2h$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_2h$start,
+                                         end = p_df_res_Ascl1_2h$end))
+GR_sel_df_res_Ascl1_2h  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_2h$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_2h$start,
+                                         end = p_sel_df_res_Ascl1_2h$end))
+
+GR_df_res_Ascl1_4h  <- 
+  GRanges(seqnames = as.character(p_df_res_Ascl1_4h$seqnames),
+                        ranges = IRanges(start = p_df_res_Ascl1_4h$start,
+                                         end = p_df_res_Ascl1_4h$end))
+GR_sel_df_res_Ascl1_4h  <- 
+  GRanges(seqnames = as.character(p_sel_df_res_Ascl1_4h$seqnames),
+                        ranges = IRanges(start = p_sel_df_res_Ascl1_4h$start,
+                                         end = p_sel_df_res_Ascl1_4h$end))
+
+
+```
+
+
+get distance to chip peaks
+```{r}
+dist_Ascl1_2h_over_Empty_2h_non_induced  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_2h_over_Empty_2h_non_induced)
+df_dist_Ascl1_2h_over_Empty_2h_non_induced<- as.data.frame(dist_Ascl1_2h_over_Empty_2h_non_induced)
+dist_sel_Ascl1_2h_over_Empty_2h_non_induced  <- distanceToNearest(peak_ASV,GR_df_sel_res_Ascl1_2h_over_Empty_2h_non_induced)
+df_dist_sel_Ascl1_2h_over_Empty_2h_non_induced <- as.data.frame(dist_sel_Ascl1_2h_over_Empty_2h_non_induced)
+
+dist_Ascl1_2h_over_Empty_2h_induced  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_2h_over_Empty_2h_induced)
+df_dist_Ascl1_2h_over_Empty_2h_induced<- as.data.frame(dist_Ascl1_2h_over_Empty_2h_induced)
+dist_sel_Ascl1_2h_over_Empty_2h_induced  <- distanceToNearest(peak_ASV,GR_df_sel_res_Ascl1_2h_over_Empty_2h_induced)
+df_dist_sel_Ascl1_2h_over_Empty_2h_induced <- as.data.frame(dist_sel_Ascl1_2h_over_Empty_2h_induced)
+
+
+
+dist_Ascl1_4h_over_Empty_4h_non_induced  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_4h_over_Empty_4h_non_induced)
+df_dist_Ascl1_4h_over_Empty_4h_non_induced<- as.data.frame(dist_Ascl1_4h_over_Empty_4h_non_induced)
+dist_sel_Ascl1_4h_over_Empty_4h_non_induced  <- distanceToNearest(peak_ASV,GR_df_sel_res_Ascl1_4h_over_Empty_4h_non_induced)
+df_dist_sel_Ascl1_4h_over_Empty_4h_non_induced <- as.data.frame(dist_sel_Ascl1_4h_over_Empty_4h_non_induced)
+
+dist_Ascl1_4h_over_Empty_4h_induced  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_4h_over_Empty_4h_induced)
+df_dist_Ascl1_4h_over_Empty_4h_induced<- as.data.frame(dist_Ascl1_4h_over_Empty_4h_induced)
+dist_sel_Ascl1_4h_over_Empty_4h_induced  <- distanceToNearest(peak_ASV,GR_df_sel_res_Ascl1_4h_over_Empty_4h_induced)
+df_dist_sel_Ascl1_4h_over_Empty_4h_induced <- as.data.frame(dist_sel_Ascl1_4h_over_Empty_4h_induced)
+
+
+dist_Ascl1_2h  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_2h)
+df_dist_Ascl1_2h<- as.data.frame(dist_Ascl1_2h)
+
+dist_sel_Ascl1_2h  <- distanceToNearest(peak_ASV,GR_sel_df_res_Ascl1_2h)
+df_dist_sel_Ascl1_2h <- as.data.frame(dist_sel_Ascl1_2h)
+
+
+
+dist_Ascl1_4h  <- distanceToNearest(peak_ASV,GR_df_res_Ascl1_4h)
+df_dist_Ascl1_4h<- as.data.frame(dist_Ascl1_4h)
+
+dist_sel_Ascl1_4h  <- distanceToNearest(peak_ASV,GR_sel_df_res_Ascl1_4h)
+df_dist_sel_Ascl1_4h <- as.data.frame(dist_sel_Ascl1_4h)
+
+```
+```{r}
+ggsave("Plots/comp_ChIP_Ascl1_vs_Empty_sig_all_4h.png",
+ggplot(as.data.frame(df_dist_sel_Ascl1_4h_over_Empty_4h_induced ),aes(x=distance))+geom_density(aes(colour="significant"), size= 1)+
+  labs(title="Distance to ChIP (Ascl1/Empty 4h)",x="Distance (bp)",  y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_Ascl1_4h_over_Empty_4h_induced ,mapping=aes(x=distance, colour="all"), size= 1)+
+  scale_colour_manual(name="",values=c(significant="red", all="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) ), dpi=300)
+
+ggsave("Plots/comp_ChIP_Ascl1_vs_Empty_sig_all_2h.png",
+ggplot(as.data.frame(df_dist_sel_Ascl1_2h_over_Empty_2h_induced ),aes(x=distance))+geom_density(aes(colour="significant"), size= 1)+
+  labs(title="Distance to ChIP  (Ascl1/Empty 2h)",x="Distance (bp)",  y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_Ascl1_2h_over_Empty_2h_induced ,mapping=aes(x=distance, colour="all"), size= 1)+
+  scale_colour_manual(name="",values=c(significant="red", all="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) ), dpi = 300)
+
+
+ggsave("Plots/comp_ChIP_Ascl1_vs_Empty_ind_2h.png",
+ggplot(as.data.frame(df_dist_sel_Ascl1_2h_over_Empty_2h_induced ),aes(x=distance))+geom_density(aes(colour="induced"), size= 1)+
+  labs(title="Distance to ChIP (Ascl1/Empty 2h)",x="Distance (bp)",  y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_sel_Ascl1_2h_over_Empty_2h_non_induced ,mapping=aes(x=distance, colour="non_induced"), size= 1)+
+  scale_colour_manual(name="",values=c(induced="red", non_induced="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) ), dpi= 300)
+
+ggsave("Plots/comp_ChIP_Ascl1_vs_Empty_ind_4h.png",
+ggplot(as.data.frame(df_dist_sel_Ascl1_4h_over_Empty_4h_induced ),aes(x=distance))+geom_density(aes(colour="induced"), size= 1)+
+  labs(title="Distance to ChIP (Ascl1/Empty 4h)",x="Distance (bp)",  y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_sel_Ascl1_4h_over_Empty_4h_non_induced ,mapping=aes(x=distance, colour="non_induced"), size= 1)+
+  scale_colour_manual(name="",values=c(induced="red", non_induced="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) ),  dpi= 300)
+
+
+
+
+
+
+
+ggsave("Plots/comp_ChIP_Ascl1_ind_nonind_2vs4h.png",
+ggplot(as.data.frame(df_dist_sel_Ascl1_4h ),aes(x=distance))+geom_density(aes(colour="4h"), size= 1)+
+  labs(title="Distance to ChIP (Ascl1/VPR 2h vs. 4h)",x="Distance (bp)",  y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_sel_Ascl1_2h  ,mapping=aes(x=distance, colour="2h"), size= 1)+
+  scale_colour_manual(name="",values=c("4h"="red", "2h"="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) ),   dpi= 300)
+
+
+ggplot(as.data.frame(df_dist_Ascl1_4h ),aes(x=distance))+geom_density(aes(colour="4h"), size= 1)+
+  labs(title="Distance to ChIP (Ascl1/VPR 2h vs. 4h)",x="Distance", y = "Density", colour="", size= 5)+theme_minimal() +xlim(0,2000)+ 
+  geom_density(df_dist_Ascl1_2h  ,mapping=aes(x=distance, colour="2h"), size= 1)+
+  scale_colour_manual(name="",values=c("4h"="red", "2h"="blue"))+ theme(plot.title = element_text(size=22), axis.title = element_text(size= 15),legend.text =element_text(size= 15),legend.title =element_text(size= 15) ,axis.text = element_text(size= 10) )
+
+
+                 
+
+
+
+
+
+```
+
+
+
+

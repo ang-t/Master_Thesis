@@ -1,0 +1,361 @@
+---
+title: "CutNRun"
+author: "Angela Topic"
+date: "30/05/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Cut & Run for Ascl1 in StaPl system with VPR and anti Flag-Tag
+
+```{r}
+# set directory to work in
+setwd('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/')
+
+#packages
+library("gtools")
+library(tidyverse)
+library(ggplot2)
+library(DESeq2)
+library(GenomicRanges)
+library(GenomeInfoDb)
+library(circlize)
+library(GenomicAlignments)
+library(rtracklayer)
+library(ChIPseeker)
+library(TxDb.Mmusculus.UCSC.mm10.knownGene)
+txdb <- TxDb.Mmusculus.UCSC.mm10.knownGene
+library(clusterProfiler)
+library(ChIPpeakAnno)
+library(ReactomePA)
+library(tibble)
+library(ggpubr)
+library(DiffBind)
+library(org.Mm.eg.db)
+library(diffloop)
+library(ggrepel)
+library(pheatmap)
+library(apeglm)
+library(readr)
+library(biomaRt)
+library(Biostrings)
+library(GenomicRanges)
+library(BSgenome.Mmusculus.UCSC.mm10)
+library(TFBSTools)
+library(JASPAR2020)
+library(SummarizedExperiment)
+library(monaLisa)
+library("SimBu")
+library(reshape2)
+library(plyr)
+library(DescTools)
+
+```
+
+
+
+## upload data
+
+```{bash}
+while read file; do
+    curl -u 'cQMkmRWK5oGNPHW:YeHmuFBymeEi' -H 'X-Requested-With: XMLHttpRequest' \
+    'https://ncie01.op.umcutrecht.nl/public.php/webdav/'$file -o $file;
+  done < /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/raw_fasta/available_files_p_2.txt
+    
+    
+# check files
+    md5sum -c md5sums.txt
+```
+
+
+# Create samplesheet
+```{r }
+
+n <- 15 # n samples
+
+path_to_file <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/raw_fasta/'
+
+fastq_1<- mixedsort(list.files(path = path_to_file,pattern = 'R1_001.fastq.gz',full.names = T), decreasing = T)
+fastq_2 <- mixedsort(list.files(path = path_to_file,pattern = 'R2_001.fastq.gz',full.names = T), decreasing = T)
+
+
+group<- c(rep("ASV_IgG",3),
+               rep("ASV_Flag",3),
+               rep("ASV_H3K27me3",3),
+               rep("DMSO_IgG",3),
+               rep("DMSO_Flag",3))
+
+replicate <- rep(seq(1,3,1),5)
+
+
+control <- c(rep("",3),
+             rep("ASV_IgG",6),
+             rep("",3),
+             rep("DMSO_IgG",3))
+
+input_file <- as.data.frame(cbind(group,replicate,fastq_1,fastq_2,control))
+str(input_file)
+
+write.csv(input_file,'/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv', row.names = F, col.names= T,quote = F)
+
+```
+
+
+
+# run nextflow (https://nf-co.re/cutandrun/3.1/usage)
+
+```{bash}
+nextflow run nf-core/cutandrun -r 3.0 -profile docker -c /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/resources.config --input /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/samplesheet.csv --outdir /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/ --max_cpus 14 --max_memory 60.GB --genome mm10 --blacklist /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed
+```
+
+
+# deeptools  (https://deeptools.readthedocs.io/en/develop/content/list_of_tools.html#general-principles)
+
+
+## heatmaps
+
+```{bash}
+
+# compute matrix
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R3.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TTS_mm10_VM23_long.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/matrix_ASV_Flag.gz -p 12 --missingDataAsZero
+
+# plot heatmap
+plotHeatmap -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ASV_Flag.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap/heatmap_ASV_Flag.pdf
+````
+
+# get profile plots
+
+```{bash}
+computeMatrix reference-point -S /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output_CPM/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/bigwig/MmES_RVChIP_062_pv6_Ascl1_DBD_pool.bigWig -R /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/TSS-TES_mm10_VM23.bed -a 3000 -b 3000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ChIP_CutnRun.gz -p 12 --missingDataAsZero
+
+plotProfile -m /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/matrix_ChIP_CutnRun.gz -out /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/Profile_ChIP_cutnrun.png --perGroup --samplesLabel ASV DMSO ASV_IgG DMSO_IgG ChIP -T "ChIP vs. CutnRun (CPM normalized)" --legendLocation upper-left --plotHeight 12 --plotWidth 18 --plotFileFormat "png"
+
+
+
+correlation plot and PCA
+```{bash}
+multiBigwigSummary bins -b /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_Flag_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/ASV_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_IgG_R3.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R1.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R2.bigWig /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/03_bed_to_bigwig/DMSO_Flag_R3.bigWig -bl /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/mm10-blacklist.v2.bed --binSize 1000 -o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz -p 14
+
+plotCorrelation \
+-in /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz \
+--corMethod spearman \
+--skipZeros \
+--removeOutliers \
+--plotTitle "Spearman Correlation" \
+--whatToPlot heatmap \
+--colorMap RdYlBu \
+--plotNumbers \
+-o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary_long_results.pdf \
+--outFileCorMatrix /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/heatmap.multiBigwigSummary.long.results.tab
+
+plotPCA -in /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/multiBigwigSummary.long.results.npz \
+-o /home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/pca_multiBigwigSummary_results.pdf \
+-T "PCA"
+
+```
+
+
+load peak files:
+
+```{r}
+
+# path to your peak files
+data_path_ChIP <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/ChIP_Ascl1/nextflow_output/bwa/mergedLibrary/macs2/broadPeak/'
+
+
+peak_files_ChIP = list.files(
+    path       = data_path_ChIP, 
+    full.names = TRUE, 
+    pattern    = 'broadPeak$'
+)
+# name the peaks
+names <- c()
+
+for (i in seq(1,length(peak_files_ChIP))){
+  names <- append(names,unlist(strsplit(basename(peak_files_ChIP[i]),".", fixed = T))[1])
+  
+}
+
+names(peak_files_ChIP) <- names
+
+# extract the peaks for each sample and assign to a name
+peak_ASV_Flag_R1 <- readPeakFile(peak_files[[1]], as= 'GRanges')
+peak_ASV_H3K27me3_R1 <- readPeakFile(peak_files[[4]], as= 'GRanges')
+peak_DMSO_Flag_R1 <- readPeakFile(peak_files[[7]], as= 'GRanges')
+
+# save them as RData
+save(peak_ASV_Flag_R1, file="data/peak_ASV_Flag_R1.RData")
+save(peak_ASV_H3K27me3_R1, file="data/peak_ASV_H3K27me3_R1.RData")
+save(peak_DMSO_Flag_R1, file="data/peak_DMSO_Flag_R1.RData")
+
+
+```
+
+
+annotate peaks
+
+(https://bioconductor.org/packages/release/bioc/vignettes/ChIPseeker/inst/doc/ChIPseeker.html)
+(https://www.bioconductor.org/packages/devel/bioc/vignettes/ChIPpeakAnno/inst/doc/ChIPpeakAnno.html)
+
+```{r}
+
+# annotate peaks
+
+peakAnno_ASV_Flag_R1 <- annotatePeak(peak_files[[1]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+peakAnno_ASV_H3K27me3_R1 <- annotatePeak(peak_files[[4]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+peakAnno_DMSO_Flag_R1 <- annotatePeak(peak_files[[7]], tssRegion=c(-2000, 200),
+                         TxDb=txdb, annoDb="org.Mm.eg.db")
+
+
+
+# for Pie chart
+plotAnnoPie(peakAnno_ASV_Flag_R1)
+plotAnnoPie(peakAnno_ASV_H3K27me3_R1)
+plotAnnoPie(peakAnno_DMSO_Flag_R1)
+# for batchart
+plotAnnoBar()
+
+# to combine in one plot list() with peaks 
+
+```
+
+
+# get profile (I don't. like it though)
+```{r}
+#get promoter regions
+promoter <- getPromoters(TxDb=txdb, upstream=2000, downstream=200)
+
+# overlay promoter with peaks
+tagMatrix_ASV_Flag_R1 <- getTagMatrix(peak_ASV_Flag_R1, windows=promoter)
+tagMatrix_ASV_H3K27me3_R1 <- getTagMatrix(peak_ASV_H3K27me3_R1, windows=promoter)
+tagMatrix_DMSO_Flag_R1 <- getTagMatrix(peak_DMSO_Flag_R1, windows=promoter)
+
+
+plotAvgProf(tagMatrix_ASV_Flag_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+plotAvgProf(tagMatrix_ASV_H3K27me3_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+plotAvgProf(tagMatrix_DMSO_Flag_R1, xlim=c(-2000, 200),
+            xlab="Genomic Region (5'->3')", ylab = "Read Count Frequency")
+
+
+```
+
+
+## motifs enriched in data
+(https://www.bioconductor.org/packages/release/bioc/vignettes/monaLisa/inst/doc/monaLisa.html)
+
+load bed files
+``` {r}
+
+
+# this is the. consensus one
+data_path <- '/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/nextflow_output/03_peak_calling/05_consensus_peaks/ASV_Flag.consensus.peaks.awk.bed'
+
+ASV_Flag_peaks <- read.table(data_path, header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6", "7", "8", "9", "10"))
+
+
+head(ASV_Flag_peaks)
+# to select for peaks in 1 to 3 files:
+ASV_Flag_peaks.consensus_1 <- dplyr::filter(ASV_Flag_peaks.consensus, count==1)
+ASV_Flag_peaks.consensus_2 <- dplyr::filter(ASV_Flag_peaks.consensus, count==2)
+ASV_Flag_peaks.consensus_3 <- dplyr::filter(ASV_Flag_peaks.consensus, count==3)
+
+```
+
+
+load more bed files
+```{r}
+ASV_Flag_peak_cons2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/ASV_Flag.consensus_1.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+DMSO_Flag_peak_cons2 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_1.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+DMSO_Flag_peak_cons3 <- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_3.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons2_ord<- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_2_sort.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+
+DMSO_Flag_peak_cons3_ord<- read.table('/home/ubuntu/MOUNT3/angela/xAT0007_cutandrun_StaPL/rscripts/data/DMSO_Flag.consensus_3_sort.bed',header = FALSE, col.names = c("chrom", "start", "end", "4", "5", "6"))
+
+```
+
+
+
+get position weight matrixes
+
+```{r}
+# for whole genome
+pwms <- getMatrixSet(JASPAR2020, opts = list(matrixtype = "PWM", tax_group = "vertebrates"))
+
+# for specific motifs (JASPAR2022)
+pfms.Ascl1 <- getMatrixByID(JASPAR2020, c("MA1100.1", "MA1100.2", "MA1631.1")) 
+
+pwms  <- toPWM(pfms.Ascl1)
+```
+convert the GRanges
+```{r}
+# create a GRanges object
+GR_ASV_Flag_peaks <- GRanges(seqnames = as.character(ASV_Flag_peak_cons2$chrom),
+                        ranges = IRanges(start = ASV_Flag_peak_cons2$start, end = ASV_Flag_peak_cons2$end))
+
+GR_ASV_Flag_peaks
+
+#load the mm10 genome to get the dna sequences
+mm10 <- BSgenome.Mmusculus.UCSC.mm10
+
+
+#convert the peaks to a DNAstring object using the mm10 genome
+seqs_ASV_Flag_peaks <- getSeq(mm10, GR_ASV_Flag_peaks)
+
+
+```
+
+will first see what motif are enriched within each peak set
+```{r}
+
+motif.enrichment.ASV_Flag_peaks <- calcBinnedMotifEnrR(seqs = seqs_ASV_Flag_peaks,
+                           pwmL = pwms,#  pwms_Ascla if only foe specific motifs
+                           background = "genome",
+                           genome = BSgenome.Mmusculus.UCSC.mm10,
+                           genome.regions = NULL, # sample from full genome
+                           genome.oversample = 2, 
+                           BPPARAM = BiocParallel::SerialParam(RNGseed = 42),
+                           verbose = TRUE)
+
+
+se.seq.GR.motif.enrichment.ASV_Flag_peaks <- motif.enrichment.ASV_Flag_peaks
+
+
+
+ncol(motif.enrichment.ASV_Flag_peaks)
+
+# convert to data frame
+df_se.seq.GR.motif.enrichment.ASV_Flag_peaks <- rowData(se.seq.GR.motif.enrichment.ASV_Flag_peaks)
+
+
+#select all motifs with Padj above a certain threshold. Modify to change stringency
+sel.motif.enrichment.ASV_Flag_peaks <- assay(motif.enrichment.ASV_Flag_peaks, "negLog10Padj")[, 1] > 1.0
+sel.motif.enrichment.ASV_Flag_peaks[is.na(sel.motif.enrichment.ASV_Flag_peaks)] <- FALSE
+df_se.seq.GR.motif.enrichment.ASV_Flag_peaks_log_2enr <- assay(motif.enrichment.ASV_Flag_peaks[sel.motif.enrichment.ASV_Flag_peaks,], "log2enr")
+
+#remove motifs that have NAs. Somehow a few motifs are loaded that don't have complete datasets in JASPAR2020. These produce NAs when doing the hypergeometric test.
+sel.motif.enrichment.ASV_Flag_peaks[is.na(sel.motif.enrichment.ASV_Flag_peaks)] <- FALSE
+
+#plot heatmap
+#x = just the selection of motifs that are significant and are not NAs
+
+plotMotifHeatmaps(x = motif.enrichment.ASV_Flag_peaks[sel.motif.enrichment.ASV_Flag_peaks,], which.plots = c("log2enr"),cluster = hcl, maxEnr = 2, maxSig = 10,
+                  show_dendrogram = TRUE,
+                  show_seqlogo = TRUE,width.seqlogo = 1.2)
+````

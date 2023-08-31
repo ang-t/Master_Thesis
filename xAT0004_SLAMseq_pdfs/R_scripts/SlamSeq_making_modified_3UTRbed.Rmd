@@ -1,0 +1,149 @@
+---
+title: "SlamSeq_making_modified_3UTRbed"
+author: "Davide Recchia"
+date: "24/02/2022"
+output: html_document
+---
+
+### making a bed file containing all of the 3' UTRs from the mm10 genome for use in the slamseq.
+
+#### Process taken from Muhar et al, 2018 SLAM-seq defines direct gene-regulatory functions of the BRD4-MYC axis. Snapshot of methods section shown here:
+
+##### Gene and 3' UTR annotations were obtained from the UCSC table browser (https://genome.ucsc.edu/cgi-bin/hgTables, June 2016). 3’ UTR annotations were assigned to Entrez GeneIDs and collapsed on a per-gene basis using bedtools’ merge command (38). For genes lacking an annotated 3' UTR, Ensembl v84 3' UTRs were added if available, resulting in a total of 58136 annotated 3' UTR intervals for 25420 genes.
+
+
+
+downloading 3'UTR file from UCSC table browser: https://genome.ucsc.edu/cgi-bin/hgTables
+1) from assembly: Dec.2011 (GRCm38/mm10)
+2) genes and gene predictions
+3) track Gencode VM23
+4) table: knownGene
+5) Output format: BED
+6) get output
+7) select 3' UTR radio button
+8) download and save as 3UTR_mm10_VM23.BED
+
+modify the bed file so the first column just says the number of the chromosome, and not 'chr1'
+
+9) save modified bed file as 3UTR_mm10_VM23_chr.BED
+
+saved in directory:
+/home/ubuntu/MOUNT3/davide/slamSeq/utr_files
+
+
+```{r, message = FALSE}
+#load packages
+library(tidyverse)
+library(limma)
+library(edgeR)
+library(readr)
+library(stringr)
+library(tibble)
+library(biomaRt)
+library(plyr)
+library(data.table)
+library(dplyr)
+
+
+```
+
+```{r}
+setwd("/home/ubuntu/MOUNT3/davide/slamSeq/utr_files")
+```
+
+
+Load the bed file into R to modify the UTR names to ENSMUST IDs:
+
+```{r}
+#load bed file into R
+bed <- as.data.frame(read.table("3UTR_mm10_VM23_chr.BED",header = FALSE, sep="\t",stringsAsFactors=FALSE))
+colnames(bed) <- c("chromosome", "start", "end", "name", "notsure", "strand")
+bed$name <- as.data.frame(substr(bed$name, start = 1, stop = 18))
+
+
+#check class and convert to dataframe
+class(bed)
+#bed <- as.data.frame(bed)
+#class(tcReadCount_geneID)
+
+#rename column to geneID
+#colnames(tcReadCount_geneID)[1] <- c("geneID")
+#or
+colnames(bed)[4] <- c("ensembl_transcript_id")
+
+
+#load biomaRt
+mart <- useMart('ensembl', dataset = 'mmusculus_gene_ensembl')
+#load relevant info from biomaRt
+biomart_info <- getBM(
+  attributes = c('ensembl_gene_id', 'ensembl_transcript_id', 'entrezgene_id', 'mgi_symbol'),
+  filters = 'ensembl_transcript_id',
+  values = bed$ensembl_transcript_id,
+  mart = mart,
+  useCache = FALSE)
+
+
+
+
+#check the types of the columns in the dataframes, to see if they can be merged
+sapply(bed, typeof)
+sapply(biomart_info, typeof)
+
+#convert the type of the ensembl_transcript_id to a different type, so that the two dataframes can be merged
+bed$ensembl_transcript_id <- unlist(bed$ensembl_transcript_id)
+
+#merge countTable data with info from biomaRt
+#could merge via dplyr
+library(dplyr)
+bed.merged <- dplyr::inner_join(bed, biomart_info, by = "ensembl_transcript_id")
+#could also merge via merge() function
+#tcReadCount_geneID <- merge(tcReadCount_geneID, biomart_info[, c("ensembl_transcript_id", "mgi_symbol")],by = "ensembl_transcript_id")
+
+#move mgi_symbol to 4th column
+bed.merged <- bed.merged[,c(1,2,3,9,5,6,7,8,4)] 
+
+# <- data.frame([4],b,c, stringsAsFactors = FALSE)
+bed.merged$mgi_symbol <- ifelse(bed.merged$mgi_symbol == "", bed.merged$ensembl_gene_id, bed.merged$mgi_symbol)
+
+bed.new <- bed.merged[,c(1,2,3,4,5,6)]
+
+write.table(bed.new,
+            "3UTR_mm10_VM23_chr_geneID.bed",
+            col.names=FALSE,
+            row.names=FALSE,
+            quote = FALSE,
+            sep = "\t")
+
+
+```
+
+## Collapse only the overlapping UTRs onto one another, on a per-gene basis
+```{bash, eval = F}
+## Merge overlapping UTRs into one another, on a per-gene basis. Note, this only merges overlapping UTRs, so some genes will still have multiple UTRs. This solves the issue of mapping the same read to duplicated UTRs that were generated from the different transcripts of the same gene. There will still be multiple UTRs for the same gene with this process. Therefore, once count tables are generated, there will be mulitple entries for the same gene. These counts will then have to be summed together, since we know they will come from unique UTRs. 
+
+
+awk 'OFS="\t" {print $4, $2, $3, $1, $5, $6}' 3UTR_mm10_VM23_chr_geneID.bed \
+| sort -k1,1 -k2,2n \
+| bedtools merge -i - -c 4,5,6 -o distinct -s \
+| awk 'OFS="\t" {print $4, $2, $3, $1, $5, $6}' \
+| sort -k1,1 -k2,2n > 3UTR_mm10_VM23_chr_geneID_partialMerge.bed
+#line by line summary:
+#read bed file, and swap the chromosome and geneID columns
+#sort rows by the gene names, so all of the same genes are next to eachother
+# merge only the overlapping UTRs based off of their geneID. Also include columns 5 (empty) and column 6 (strand)
+# change order back so the chromosome# and geneID are in the normal Bed file positions
+# sort based off of chromosome and UTR start positoins (optional sort)
+
+
+geneID_partialMerge.bed <- as.data.frame(read.table("3UTR_mm10_VM23_chr_geneID_partialMerge.bed",header = FALSE, sep="\t",stringsAsFactors=FALSE))
+
+
+```
+
+This produced file can now be used as the 5'UTR bed file in slamseq. 
+
+However, once the count tables are produced, there will be multiple count per gene. These can call be collapsed (summed) onto the gene name, since each row represents a unique UTR.
+
+
+
+
